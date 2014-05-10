@@ -1,3 +1,21 @@
+This is a OpenFlow 1.3 compatible fork of the POX controller.
+It was created as a part of master's thesis project on the
+Faculty of Informatics and Informatic Technologies
+at the Slovak University of Technologies (http://fiit.stuba.sk)
+by Viktor Sulak
+
+
+The code is not yet of production quality (and there are untested parts) !!!!!
+
+
+Succesfully tested using CPqD ofsoftswitch13 and Open vSwitch 2.1.0
+
+Run by following command:
+
+  ./pox.py forwarding.l2_learning_04
+ 
+------------------------------------------------------------------------------
+
 POX is a networking software platform written in Python
 
 POX started life as an OpenFlow controller, but can now also function
@@ -12,9 +30,6 @@ You can place a pypy distribution alongside pox.py (in a directory
 named "pypy"), and POX will run with pypy (this can be a significant
 performance boost!).
 
-POX currently communicates with OpenFlow 1.0 switches and includes
-special support for the Open vSwitch/Nicira extensions.
-
 pox.py boots up POX. It takes a list of module names on the command line,
 locates the modules, calls their launch() function (if it exists), and
 then transitions to the "up" state.
@@ -22,13 +37,13 @@ then transitions to the "up" state.
 Modules are looked for everywhere that Python normally looks, plus the
 "pox" and "ext" directories.  Thus, you can do the following:
 
-  ./pox.py forwarding.l2_learning
+  ./pox.py forwarding.l2_learning_04
 
 You can pass options to the modules by specifying options after the module
 name.  These are passed to the module's launch() funcion.  For example,
 to set the address or port of the controller, invoke as follows:
 
-  ./pox.py openflow.of_01 --address=10.1.1.1 --port=6634
+  ./pox.py openflow.of_04 --address=10.1.1.1 --port=6634
 
 pox.py also supports a few command line options of its own which should
 be given first:
