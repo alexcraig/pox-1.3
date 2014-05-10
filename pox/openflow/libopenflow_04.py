@@ -1992,8 +1992,8 @@ class ofp_match (ofp_base):
 
   def __init__ (self, **kw):
     self._locked = False
-    self._wc = FlowWildcards()
-    self._flow = Flow()
+    #self._wc = FlowWildcards()
+    #self._flow = Flow()
 
     self._in_port = 0
     self._in_phy_port = 0
@@ -4221,7 +4221,7 @@ class ofp_flow_mod (ofp_header):
                      OFPFF_RESET_COUNTS
                      OFPFF_NO_PKT_COUNTS
                      OFPFF_NO_BYT_COUNTS
-    match            Instance of ``OFPMatch``
+    match            Instance of ``ofp_match``
     instructions     list of ``ofp_instruction`` instances
     ================ ====================================================== 
   """
@@ -5354,7 +5354,7 @@ class ofp_flow_multipart_request (ofp_multipart_body_base):
                      group
     cookie           Require matching entries to contain this cookie value
     cookie_mask      Mask used to restrict the cookie bits that must match
-    match            Instance of ``OFPMatch``
+    match            Instance of ``ofp_match``
     ================ ======================================================
     """
   def __init__ (self, **kw):
@@ -7277,7 +7277,7 @@ class ofp_packet_in (ofp_header):
                   OFPR_INVALID_TTL
     table_id      ID of the table that was looked up
     cookie        Cookie of the flow entry that was looked up
-    match         Instance of ``OFPMatch``
+    match         Instance of ``ofp_match``
     data          Ethernet frame
     ============= =========================================================
     """
@@ -7461,7 +7461,7 @@ class ofp_flow_removed (ofp_header):
     hard_timeout     Hard timeout from original flow mod
     packet_count     Number of packets that was associated with the flow
     byte_count       Number of bytes that was associated with the flow
-    match            Instance of ``OFPMatch``
+    match            Instance of ``ofp_match``
     ================ ======================================================
   """
   def __init__ (self, **kw):

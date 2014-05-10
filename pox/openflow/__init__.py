@@ -380,7 +380,6 @@ class OpenFlowNexus (EventMixin):
   specific connections.
   """
   _eventMixin_events = set([
-    ConnectionHandshakeComplete,
     ConnectionUp,
     ConnectionDown,
     FeaturesReceived,
