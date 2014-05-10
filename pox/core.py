@@ -187,8 +187,8 @@ class POXCore (EventMixin):
     RereadConfiguration,
   ])
 
-  version = (0,3,0)
-  version_name = "dart"
+  version = (0,3,1)
+  version_name = "dart-1.3"
 
   def __init__ (self, threaded_selecthub=True, epoll_selecthub=False,
                 handle_signals=True):
@@ -213,7 +213,7 @@ class POXCore (EventMixin):
 
   @property
   def banner (self):
-    return "{0} / Copyright 2011-2014 James McCauley, et al.".format(
+    return "{0} / Copyright 2011-2014 James McCauley, et al. / 2013-2014 Viktor Sulak".format(
      self.version_string)
 
   @property

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pox.openflow.libopenflow_01 as of
+import pox.openflow.libopenflow_04 as of
 import struct
 from pox.lib.revent import EventMixin
 import pox.openflow

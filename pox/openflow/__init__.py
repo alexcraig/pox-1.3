@@ -38,23 +38,13 @@ from pox.lib.util import dpidToStr
 import libopenflow_01 as of
 from pox.lib.packet.ethernet import ethernet
 
-
-class ConnectionHandshakeComplete (Event):
-  """
-  Event when a switch handshake completes
-
-  Fired immediately before ConnectionUp
-  """
-  def __init__ (self, connection):
-    self.connection = connection
-    self.dpid = connection.dpid
-
 class ConnectionUp (Event):
   """
   Event raised when the connection to an OpenFlow switch has been
   established.
   """
   def __init__ (self, connection, ofp):
+    Event.__init__(self)
     self.connection = connection
     self.dpid = connection.dpid
     self.ofp = ofp
@@ -66,6 +56,26 @@ class FeaturesReceived (Event):
   This generally happens as part of a connection automatically.
   """
   def __init__ (self, connection, ofp):
+    self.connection = connection
+    self.dpid = connection.dpid
+    self.ofp = ofp
+
+class RoleReply (Event):
+  """
+  Raised upon receipt of an ofp_role_reply message
+  """
+  def __init__ (self, connection, ofp):
+    Event.__init__(self)
+    self.connection = connection
+    self.dpid = connection.dpid
+    self.ofp = ofp
+
+class GetAsyncReply (Event):
+  """
+  Raised upon receipt of an ofp_get_async_reply message
+  """
+  def __init__ (self, connection, ofp):
+    Event.__init__(self)
     self.connection = connection
     self.dpid = connection.dpid
     self.ofp = ofp
@@ -160,6 +170,71 @@ class PortStatsReceived (StatsReply):
   pass
 
 class QueueStatsReceived (StatsReply):
+  pass
+
+class RawMultipartReply (Event):
+  def __init__ (self, connection, ofp):
+    Event.__init__(self)
+    self.connection = connection
+    self.ofp = ofp     # Raw ofp message(s)
+
+  @property
+  def dpid (self):
+    return self.connection.dpid
+
+
+class MultipartReply (Event):
+  """ Abstract superclass for all multipart replies """
+  def __init__ (self, connection, ofp, multiparts):
+    Event.__init__(self)
+    self.connection = connection
+    self.ofp = ofp     # Raw ofp message(s)
+    self.multiparts = multiparts # Processed
+
+  @property
+  def dpid (self):
+    return self.connection.dpid
+
+class MPSwitchDescReceived (MultipartReply):
+  pass
+
+class MPFlowStatsReceived (MultipartReply):
+  pass
+
+class MPAggregateFlowStatsReceived (MultipartReply):
+  pass
+
+class MPTableStatsReceived (MultipartReply):
+  pass
+
+class MPPortStatsReceived (MultipartReply):
+  pass
+
+class MPQueueStatsReceived (MultipartReply):
+  pass
+
+class MPGroupMultipartReceived (MultipartReply):
+  pass
+
+class MPGroupDescMultipartReceived (MultipartReply):
+  pass
+
+class MPGroupFeaturesMultipartReceived (MultipartReply):
+  pass
+
+class MPMeterMultipartReceived (MultipartReply):
+  pass
+
+class MPMeterConfigMultipartReceived (MultipartReply):
+  pass
+
+class MPMeterFeaturesMultipartReceived (MultipartReply):
+  pass
+
+class MPTableFeaturesMultipartReceived (MultipartReply):
+  pass
+
+class MPPortDescMultipartReceived (MultipartReply):
   pass
 
 class PacketIn (Event):
@@ -314,6 +389,28 @@ class OpenFlowNexus (EventMixin):
     PacketIn,
     BarrierIn,
     ErrorIn,
+    FlowRemoved,
+    RoleReply,
+    GetAsyncReply,
+    
+    # OF 1.3 Multiparts
+    RawMultipartReply,
+    MPSwitchDescReceived,
+    MPFlowStatsReceived,
+    MPAggregateFlowStatsReceived,
+    MPTableStatsReceived,
+    MPPortStatsReceived,
+    MPQueueStatsReceived,
+    MPGroupMultipartReceived,
+    MPGroupDescMultipartReceived,
+    MPGroupFeaturesMultipartReceived,
+    MPMeterMultipartReceived,
+    MPMeterConfigMultipartReceived,
+    MPMeterFeaturesMultipartReceived,
+    MPTableFeaturesMultipartReceived,
+    MPPortDescMultipartReceived,
+
+    # OF 1.0 stats
     RawStatsReply,
     SwitchDescReceived,
     FlowStatsReceived,
@@ -321,7 +418,6 @@ class OpenFlowNexus (EventMixin):
     TableStatsReceived,
     PortStatsReceived,
     QueueStatsReceived,
-    FlowRemoved,
   ])
 
   # Bytes to send to controller when a packet misses all flows

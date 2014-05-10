@@ -53,7 +53,7 @@ class OpenFlowWorker (BackoffWorker):
     self.log.debug(*args,**kw)
 
 
-def do_launch (cls, address = '127.0.0.1', port = 6633, max_retry_delay = 16,
+def do_launch (cls, address = '127.0.0.1', port = 6653, max_retry_delay = 16,
     dpid = None, extra_args = None, **kw):
   """
   Used for implementing custom switch launching functions
@@ -103,7 +103,7 @@ def do_launch (cls, address = '127.0.0.1', port = 6633, max_retry_delay = 16,
   return switch
 
 
-def softwareswitch (address='127.0.0.1', port = 6633, max_retry_delay = 16,
+def softwareswitch (address='127.0.0.1', port = 6653, max_retry_delay = 16,
     dpid = None, extra = None, __INSTANCE__ = None):
   """
   Launches a SoftwareSwitch
