@@ -2094,8 +2094,8 @@ class ofp_match (ofp_base):
     offset,(self._type, self._length) = _unpack("!HH", raw, offset)
     
     if (match_len != 0):
-      self._length = match_len
-      length_oxm = match_len - 4
+      #self._length = match_len
+      length_oxm = self._length - 4
     else:
       length_oxm = self._length - 4
 
@@ -2121,8 +2121,9 @@ class ofp_match (ofp_base):
        
         decoding here should perform better than calling oxm_class object methods
       """
-      if oxm_length_loc < 1:
-        pass
+      if (oxm_length_loc < 1) or ((oxm_length_loc+4) > length_oxm):
+        log.debug("Incorrect OXM field?? length %d+4 available %d", oxm_length_loc, length_oxm)
+        length_oxm = 0
 
       # OFPXMT_OFB_IN_PORT 0
       elif oxm_field_loc == 0:
@@ -2177,21 +2178,21 @@ class ofp_match (ofp_base):
 
       # OFPXMT_OFB_VLAN_VID 6
       elif oxm_field_loc == 6:
-        (oxm_data_value,) = struct.unpack("!H", oxm_data_loc) # TODO check - unpacking 16 bits, specified 12+1
+        oxm_data_value = int(oxm_data_loc.encode('hex'), 16) # TODO check - unpacking 16 bits, specified 12+1
         self._dl_vlan = oxm_data_value 
         #log.debug("VLAN ID %d", self.dl_vlan)
 
 
       # OFPXMT_OFB_VLAN_PCP 7
       elif oxm_field_loc == 7:
-        (oxm_data_value,) = struct.unpack("!B", oxm_data_loc) # TODO check - unpacking 8 bits, specified 3
+        oxm_data_value = int(oxm_data_loc.encode('hex'), 16) # TODO check - unpacking 8 bits, specified 3
         self._dl_vlan_pcp = oxm_data_value 
         #log.debug("VLAN PCP %d", self.dl_vlan_pcp)
 
 
       # OFPXMT_OFB_IP_DSCP (ToS bits 0-5)  8
       elif oxm_field_loc == 8:
-        (oxm_data_value,) = struct.unpack("!B", oxm_data_loc) # TODO check - unpacking 8 bits, specified 6
+        oxm_data_value = int(oxm_data_loc.encode('hex'), 16) # TODO check - unpacking 8 bits, specified 6
         tos = self._nw_tos & 63
         dscp = oxm_data_value 
         self._nw_tos = int(tos+dscp)
@@ -2200,7 +2201,7 @@ class ofp_match (ofp_base):
 
       # OFPXMT_OFB_IP_ECN (ToS bits 6-7)  9
       elif oxm_field_loc == 9:
-        (oxm_data_value,) = struct.unpack("!B", oxm_data_loc) # TODO check - unpacking 8 bits, specified 2
+        oxm_data_value = int(oxm_data_loc.encode('hex'), 16) # TODO check - unpacking 8 bits, specified 2
         tos = self._nw_tos & 192
         ecn = oxm_data_value 
         self._nw_tos = int(tos+ecn)
@@ -2310,12 +2311,10 @@ class ofp_match (ofp_base):
 
       # OFPXMT_OFB_ARP_THA 25
       elif oxm_field_loc == 25:
-        oxm_data_value = ''
-        for x in oxm_data_loc:
-            oxm_data_value += binascii.hexlify(x)
+        oxm_data_value = binascii.hexlify(oxm_data_loc)      # not very pretty fix
         oxm_data_value = EthAddr(binascii.unhexlify(oxm_data_value))
         self._arp_tha = oxm_data_value
-        #log.debug("ARP destination address %s", str(self.arp_tha))
+        #log.debug("ARP destination address %s", str(self._arp_tpa))
 
 
       # OFPXMT_OFB_IPV6_SRC 26
@@ -2392,9 +2391,9 @@ class ofp_match (ofp_base):
         self.opcode = oxm_data_value
         #log.debug("ICMPv6 opcode %d", self.opcode)
 
-      # OFPXMT_OFB_IPV6_EXTHDR 39  # TODO check
+      # OFPXMT_OFB_IPV6_EXTHDR 39
       elif oxm_field_loc == 39:
-        self._ipv6_exthdr = int(oxm_data_loc.encode('hex'), 16)
+        self._ipv6_exthdr = int(oxm_data_loc.encode('hex'), 16)  # TODO check
         #log.debug("ipv6_exthdr %d", self.ipv6_exthdr)
 
 
@@ -2424,10 +2423,19 @@ class ofp_match (ofp_base):
     #          match_len,
     #          offset - _offset - match_len,)
 
-    #assert offset - _offset - match_len == 4
-    #return offset 
 
     match_pad = (8-(match_len % 8)) % 8   # match alignment to 64-bits
+
+    #if offset != _offset + match_len:
+    #  log.debug("OXM offset %d != %d (_offset %d + match_len %d + padding %d)",
+    #            offset,
+    #            (_offset + match_len + match_pad),
+    #            _offset,
+    #            match_len,
+    #            match_pad)    
+      
+    #assert  offset == _offset + match_len + match_pad
+
     return _offset + match_len + match_pad
   
   # OF1.2+ method to unpack data from Ethernet packet
@@ -7398,6 +7406,10 @@ class ofp_packet_in (ofp_header):
 
     offset = length
 
+    if length != len(self):
+      log.error("length %d len(self) %d matchlen %d datalen %d datastart %d", length, len(self), matchlength, dataLen, datastart)
+      log.error(self.show())
+
     assert length == len(self)
     return offset, length
 
@@ -7715,7 +7727,7 @@ class ofp_hello (ofp_header):
     offset, self.length = self._unpack_header(raw, offset)
    
     offset_target += self.length
-    log.debug ("hello (beginning) offset %d self.length %d offset target %d", offset, self.length, offset_target)
+    #log.debug ("hello (beginning) offset %d self.length %d offset target %d", offset, self.length, offset_target)
     
     # unpacking of elements
     
@@ -7723,10 +7735,10 @@ class ofp_hello (ofp_header):
       element = ofp_hello_elem_header()
       offset = ofp_hello_elem_header.unpack(element, raw, offset)
 
-      log.debug(element.show())
-      log.debug("hello offset after element %d",offset)
+      #log.debug(element.show())
+      #log.debug("hello offset after element %d",offset)
 
-    log.debug ("hello (end) offset %d self.length %d offset target %d", offset, self.length, offset_target)
+    #log.debug ("hello (end) offset %d self.length %d offset target %d", offset, self.length, offset_target)
     assert self.length == len(self)
     return offset, self.length
 
@@ -7811,7 +7823,9 @@ class ofp_echo_request (ofp_header):
     reply_to="ofp_echo_request")
 class ofp_echo_reply (ofp_header):
   """
-    An Echo Reply message consists of an OpenFlow header plus the unmodied data eld of an echo
+    An Echo Reply message consists of an OpenFlow header plus the unmodi
+ed data 
+eld of an echo
     request message.
   """
   _MIN_LENGTH = 8
