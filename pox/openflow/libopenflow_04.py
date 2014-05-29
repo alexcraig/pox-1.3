@@ -2122,7 +2122,7 @@ class ofp_match (ofp_base):
         decoding here should perform better than calling oxm_class object methods
       """
       if oxm_length_loc < 1:
-        log.error("OXM length incorrect")
+        pass
 
       # OFPXMT_OFB_IN_PORT 0
       elif oxm_field_loc == 0:
@@ -2170,7 +2170,7 @@ class ofp_match (ofp_base):
 
       # OFPXMT_OFB_ETH_TYPE 5
       elif oxm_field_loc == 5:
-        (oxm_data_value,) = struct.unpack("!H", oxm_data_loc)
+        (oxm_data_value,) = struct.unpack("!H", oxm_data_loc) 
         self._dl_type = oxm_data_value
         #log.debug("L2 type %s (%s)", hex(self._dl_type), ethernet.l2_type_map[self.dl_type])
 
