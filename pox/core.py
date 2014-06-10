@@ -213,7 +213,7 @@ class POXCore (EventMixin):
 
   @property
   def banner (self):
-    return "{0} / Copyright 2011-2014 James McCauley, et al. / 2013-2014 Viktor Sulak".format(
+    return "{0} / Copyright 2011-2014 James McCauley, et al.\n 2013-2014 Viktor Sulak".format(
      self.version_string)
 
   @property
