@@ -6900,7 +6900,8 @@ class ofp_packet_out (ofp_header):
     return offset,length
 
   def __len__ (self):
-    #return 16 + reduce(operator.add, (len(a) for a in self.actions), 0) + (len(self.data) if self.data else 0)
+    #return 16 + reduce(operator.add, (len(a) for a in self.actions), 0)
+    #          + (len(self.data) if self.data else 0)
     
     actions = b''.join((i.pack() for i in self.actions))
     return ( len(ofp_header) + 16 + len(actions) + len(self.data) )

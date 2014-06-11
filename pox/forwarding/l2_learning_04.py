@@ -89,7 +89,8 @@ class LearningSwitch (object):
     # We just use this to know when to log a helpful message
     self.hold_down_expired = _flood_delay == 0
 
-    #log.debug("Initializing LearningSwitch, transparent=%s",  str(self.transparent))
+    #log.debug("Initializing LearningSwitch, transparent=%s",  
+    #          str(self.transparent))
 
 
   # Handle packet in messages from the switch to implement above algorithm.
@@ -102,8 +103,11 @@ class LearningSwitch (object):
     #data_string = pickle.dumps(packet)
     #log.debug('PACKET object structure: %s', data_string)
 
-    #log.debug(json.dumps(packet, default=lambda o: o.__dict__, sort_keys=True, indent=4))
-    log.debug(packet._to_str())
+    #log.debug(json.dumps(packet, 
+    #                     default=lambda o: o.__dict__, 
+    #                     sort_keys=True, indent=4))
+
+    #log.debug(packet._to_str())
 
     # test - hub behaviour
     """
@@ -122,7 +126,8 @@ class LearningSwitch (object):
         if self.hold_down_expired is False:
           # Oh yes it is!
           self.hold_down_expired = True
-          log.info("%s: Flood hold-down expired -- flooding", dpid_to_str(event.dpid))
+          log.info("%s: Flood hold-down expired -- flooding", 
+                   dpid_to_str(event.dpid))
 
         if message is not None: log.debug(message)
         #log.debug("%i: flood %s -> %s", event.dpid,packet.src,packet.dst)
@@ -147,14 +152,18 @@ class LearningSwitch (object):
           duration = (duration,duration)
 
 
-        #action = of.ofp_action_output(port = of.OFPP_FLOOD, # TODO other port? 
-        #                              max_len = of.OFPCML_NO_BUFFER)
-        #msg = of.ofp_flow_mod(actions=[action],
-        #                      match = of.ofp_match.from_packet(packet),
-        #                      idle_timeout = duration[0],
-        #                      hard_timeout = duration[1],
-        #                      buffer_id = event.ofp.buffer_id,
-        #                      )
+        #action = of.ofp_action_output(
+        #    port = of.OFPP_FLOOD, # TODO other port?
+        #    max_len = of.OFPCML_NO_BUFFER)
+
+        #msg = of.ofp_flow_mod(
+        #    actions=[action],
+        #    match = of.ofp_match.from_packet(packet),
+        #    idle_timeout = duration[0],
+        #    hard_timeout = duration[1],
+        #    buffer_id = event.ofp.buffer_id,
+        #    )
+
         #self.connection.send(msg)
         
       elif event.ofp.buffer_id is not None:
@@ -191,16 +200,18 @@ class LearningSwitch (object):
       # we have mac associated with port
       else:
         port = self.macToPort[packet.dst]
-        log.debug("we have mac associated with port %s", of.ofp_port_map.get(port, str(port)))
+        log.debug("we have mac associated with port %s", \
+                  of.ofp_port_map.get(port, str(port)))
 
         # 5 - packet port the same as the (what entity is self???) port 
         if port == event.port: # 5
           # 5a
-          log.info("Same port for packet from %s -> %s on %s.%s.  Drop."  % (packet.src, 
-                                                                             packet.dst,
-                                                                             dpid_to_str(event.dpid), 
-                                                                             of.ofp_port_map.get(port, str(port)),
-                                                                             ))
+          log.info("Same port for packet from %s -> %s on %s.%s.  Drop." 
+                   % (packet.src, 
+                      packet.dst, 
+                      dpid_to_str(event.dpid), 
+                      of.ofp_port_map.get(port, str(port)), 
+                   ))
 
           #log.debug(" port %s event.port %s", hex(port), hex(event.port))
 
@@ -208,23 +219,27 @@ class LearningSwitch (object):
           return
        
         # 6 - let's install proper flow matching rule
-        log.debug("installing flow for %s.%i -> %s.%s" % (packet.src, 
-                                                          event.port, 
-                                                          packet.dst, 
-                                                          of.ofp_port_map.get(port, str(port)),
-                                                          ))
+        log.debug("installing flow for %s.%i -> %s.%s" 
+                  % (packet.src, 
+                    event.port, 
+                    packet.dst, 
+                    of.ofp_port_map.get(port, str(port)),
+                  ))
         
         # 6a
-        msg = of.ofp_flow_mod(match = of.ofp_match.from_packet(packet,      # ofp_packet_in instance
-                                                               event.port,  # in port
-                                                               False,       # spec_frags 
-                                                               True,        # l2_only - new feature switching between L2 matches and L2-4 matches
-                                                               ),
-                              idle_timeout = 10,
-                              hard_timeout = 30,
-                              actions = [of.ofp_action_output(port = port)],
-                              data = event.ofp 
-                              )
+        msg = of.ofp_flow_mod(
+            match = of.ofp_match.from_packet(
+                packet,      # ofp_packet_in instance
+                event.port,  # in port
+                False,       # spec_frags 
+                False,        # l2_only - new feature switching between
+                             # L2 matches and L2-4 matches
+                ),
+            idle_timeout = 10,
+            hard_timeout = 30,
+            actions = [of.ofp_action_output(port = port)],
+            data = event.ofp 
+            )
 
         self.connection.send(msg)
 
