@@ -2042,7 +2042,32 @@ class ofp_match (ofp_base):
       if not hasattr(self, '_'+k):
         raise TypeError(self.__class__.__name__ + " constructor got unexpected keyword argument '" + k + "'")
       setattr(self, k, v)
+    
+    self.set_oxm_from_attributes()
+  
+  def set_oxm_fields(self, oxms):
+    self._oxm_fields_pkt = oxms
+    self._length = 4 + sum(len(field) for field in self._oxm_fields_pkt)
+    self._oxm_length = sum( (len(field)) for field in self._oxm_fields_pkt)
+    
+  def set_oxm_from_attributes(self):
+      oxms = []
+      
+      # MAC Fields
+      if self._dl_type != 0:
+          oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_ETH_TYPE'],
+              oxm_length = 2, data = struct.pack('!H', self._dl_type), value = ('0x' +str(self._dl_type)),))
+      
+      if self._dl_dst != EMPTY_ETH:
+          oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_ETH_DST'],
+              oxm_length = 6, data = binascii.unhexlify(self._dl_dst.toStr('', False)), value = self._dl_dst.toStr(':', False),))
+              
+      if self._dl_src != EMPTY_ETH:
+          oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_ETH_DST'],
+              oxm_length = 6, data = binascii.unhexlify(self._dl_src.toStr('', False)), value = self._dl_src.toStr(':', False),))
 
+      self.set_oxm_fields(oxms)
+      
   # OF 1.2+ packing method
   def pack (self, flow_mod=False):
     """
