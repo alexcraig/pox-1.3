@@ -328,7 +328,7 @@ class Discovery (EventMixin):
     """
     Remove apparently dead links
     """
-    log.info("Expiring dead links")
+    #log.info("Expiring dead links")
     now = time.time()
 
     expired = [link for link,timestamp in self.adjacency.iteritems()

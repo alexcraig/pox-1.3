@@ -905,9 +905,9 @@ class Connection (EventMixin):
 
       if buf_len - offset < msg_length: break
 
-      log.debug('Message in, type: %s, length: %d', 
-                of.ofp_type_map.get(ofp_type, str(ofp_type) ),
-                msg_length )
+      #log.debug('Message in, type: %s, length: %d', 
+      #          of.ofp_type_map.get(ofp_type, str(ofp_type) ),
+      #          msg_length )
 
       new_offset,msg = unpackers[ofp_type](self.buf, offset)
 
