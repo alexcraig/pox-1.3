@@ -96,11 +96,24 @@ class LLDPSender (object):
     for port_num, port_addr in ports:
       self.add_port(event.dpid, port_num, port_addr, set_timer = False)
 
-    log.info("LLDPSender _handle_openflow_ConnectionUp")
+    # log.info("LLDPSender _handle_openflow_ConnectionUp")
+
+    # OpenFlow 1.3 Addition - Port descriptions are no longer included in FEATURES_REPLY
+    # so we send a port description request on receiving ConnectionUp
+    msg = of.ofp_multipart_request(type = 13) # 13 = OFPMP_PORT_DESC
+    event.connection.send(msg)
+    log.debug("Sent PORT_DESC_REQUEST for dpid: %s", dpid_to_str(event.dpid))
+    
     self._set_timer()
 
   def _handle_openflow_ConnectionDown (self, event):
     self.del_switch(event.dpid)
+
+  def _handle_openflow_MPPortDescMultipartReceived(self, event):
+    for port in event.ofp[0].body:
+      if port.port_no == 4294967294: # OFPP_LOCAL
+        continue
+      self.add_port(event.dpid, port.port_no, port.hw_addr)
 
   def del_switch (self, dpid, set_timer = True):
     self._this_cycle = [p for p in self._this_cycle if p.dpid != dpid]
@@ -116,7 +129,7 @@ class LLDPSender (object):
     if set_timer: self._set_timer()
 
   def add_port (self, dpid, port_num, port_addr, set_timer = True):
-    log.info("LLDPSender add_port")
+    # log.info("LLDPSender add_port")
     if port_num > of.OFPP_MAX: return
     self.del_port(dpid, port_num, set_timer = False)
     self._next_cycle.append(LLDPSender.SendItem(dpid, port_num,
@@ -149,7 +162,7 @@ class LLDPSender (object):
     it on the next-cycle list.  When this cycle's list is empty, starts
     the next cycle.
     """
-    log.info("LLDPSender _timer_handler")
+    # log.info("LLDPSender _timer_handler")
     num = int(self._send_chunk_size)
     fpart = self._send_chunk_size - num
     if random() < fpart: num += 1
@@ -161,7 +174,7 @@ class LLDPSender (object):
         #shuffle(self._this_cycle)
       item = self._this_cycle.pop(0)
       self._next_cycle.append(item)
-      log.info("LLDPSender sending LLDP packet to core, DPID: %s", dpid_to_str(item.dpid))
+      # log.debug("LLDPSender sending LLDP packet to core, DPID: %s", dpid_to_str(item.dpid))
       core.openflow.sendToDPID(item.dpid, item.packet)
 
   def create_discovery_packet (self, dpid, port_num, port_addr):

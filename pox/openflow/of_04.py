@@ -181,16 +181,19 @@ def handle_FEATURES_REPLY (con, msg):
                                  oxm_length = 4,
                                  data = b'\xff'*4,
                                  value = 'OFPP_ANY') # ANY
+  match = of.ofp_match()
+  match.set_oxm_fields([match_oxm])
   #log.debug(match_oxm.show())                               
 
-  con.send(of.ofp_flow_mod(command = of.OFPFC_ADD, 
+  flow_mod = of.ofp_flow_mod(command = of.OFPFC_ADD, 
                            out_port = of.OFPP_CONTROLLER, 
                            _buffer_id = of.NO_BUFFER, 
                            priority = 1,
-                           match = of.ofp_match(oxm_fields_pkt = []), 
+                           match = match, 
                            instructions = [instruction],
                            idle_timeout = 0,
-                           hard_timeout = 0, ))
+                           hard_timeout = 0,)
+  con.send(flow_mod)
   
   # make sure everything is processed
   con.send(barrier)
@@ -827,19 +830,24 @@ class Connection (EventMixin):
     Data should probably either be raw bytes in OpenFlow wire format, or
     an OpenFlow controller-to-switch message object from libopenflow.
     """
-    if self.disconnected: return
+    if self.disconnected:
+        self.err("Send error, switch is disconnected")
+        return
+
     if type(data) is not bytes:
       # There's actually no reason the data has to be an instance of
       # ofp_header, but this check is likely to catch a lot of bugs,
       # so we check it anyway.
-      assert isinstance(data, of.ofp_header)
       
-      log.debug('Message out, type: %s, length: %d', 
-                of.ofp_type_map.get(data.header_type, str(data.header_type) ),
-                len(data)
-      )
+      #assert isinstance(data, of.ofp_header)
+      
+      #log.debug('Message out, type: %s, length: %d', 
+      #          of.ofp_type_map.get(data.header_type, str(data.header_type) ),
+      #          len(data)
+      #)
 
       data = data.pack()
+      #log.debug("Length of packed data: %s", len(data))
 
     if deferredSender.sending:
       log.debug("deferred sender is sending!")

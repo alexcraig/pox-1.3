@@ -390,6 +390,7 @@ OFP_DEFAULT_PRIORITY = 0x8000
 OFP_VLAN_NONE = 0xffff
 OFPQ_ALL = 0xffffffff
 NO_BUFFER = 4294967295
+OFPP_MAX = 4294967040
 
 # enum ofp_controller_max_len
 ofp_controller_max_len_rev_map = {
