@@ -911,7 +911,7 @@ class Connection (EventMixin):
 
       new_offset,msg = unpackers[ofp_type](self.buf, offset)
 
-      log.debug("new_offset %d offset %d msg_length %d", new_offset, offset, msg_length)
+      #log.debug("new_offset %d offset %d msg_length %d", new_offset, offset, msg_length)
 
       # FIXME - assertion sometimes fails on unknown conditions (probably on packet in or multipart messages but not always)
       assert new_offset - offset == msg_length
