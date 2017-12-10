@@ -40,6 +40,7 @@ import udp as UDP
 import vlan as VLAN
 import mpls as MPLS
 import llc as LLC
+import igmpv3 as IGMPV3
 
 from arp import *
 from dhcp import *
@@ -57,6 +58,7 @@ from udp import *
 from vlan import *
 from mpls import *
 from llc import *
+from igmpv3 import *
 
 __all__ = [
   'arp',
@@ -76,6 +78,7 @@ __all__ = [
   'vlan',
   'mpls',
   'llc',
+  'igmpv3',
 
   'ARP',
   'DHCP',
@@ -93,4 +96,5 @@ __all__ = [
   'VLAN',
   'MPLS',
   'LLC',
+  'IGMPV3'
 ]
