@@ -5553,14 +5553,13 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     offset = offset + match_len
     self.match_total_len = match_len
 
-    offset,(instruction_type, instruction_len) = _unpack("!HH", raw, offset)
+    offset,(instruction_type, instruction_len) = _unpack("!HHxxxx", raw, offset)
     # log.warn("unpack got instruction_len %s", instruction_len)
-    offset = offset + instruction_len - 4
     self.actions_total_len = instruction_len - 4
 
-    #assert (offset - _offset) == 48 + len(self.match)
-    #offset,self.actions = _unpack_actions(raw,
-    #    length - (48 + len(self.match)), offset)
+    # log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 12)))
+    offset,self.actions = _unpack_actions(raw,
+        length - (48 + self.match_total_len + 12), offset)
 
     assert offset - _offset == len(self)
     return offset
