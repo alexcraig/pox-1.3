@@ -5150,9 +5150,9 @@ class ofp_multipart_reply (ofp_header):
             prev_len = len(packed)
             self.body.append(part)
     
-    #log.debug(self.show() )
+    # log.debug(self.show() )
 
-    #log.debug("length %d len %d len_body %d", 
+    # log.debug("length %d len %d len_body %d", 
     #          length, 
     #          len(self), 
     #          len(self.body) )
@@ -5162,6 +5162,8 @@ class ofp_multipart_reply (ofp_header):
 
   def __len__ (self):
     if isinstance(self.body, list):
+      #for part in self.body:
+      #  log.debug("%s - len %s", str(part), str(len(part)))
       return len(ofp_header) + 8 + sum(len(part) for part in self.body)
     return len(ofp_header) + 8 + len(self.body)
 
@@ -5399,7 +5401,7 @@ class ofp_flow_multipart_request (ofp_multipart_body_base):
   def __init__ (self, **kw):
     self.match = ofp_match()
     self.table_id = TABLE_ALL
-    self.out_port = OFPP_FLOOD
+    self.out_port = OFPP_ANY
     self.out_group = OFPG_ANY
     self.cookie = 0 
     self.cookie_mask = 0
@@ -5477,10 +5479,9 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     body             List of ``OFPFlowStats`` instance
     ================ ======================================================
     """
-  _MIN_LENGTH = 40
+  _MIN_LENGTH = 56
   def __init__ (self, **kw):
     self.table_id = 0
-    self.match = ofp_match()
     self.duration_sec = 0
     self.duration_nsec = 0
     self.priority = OFP_DEFAULT_PRIORITY
@@ -5489,7 +5490,14 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     self.cookie = 0
     self.packet_count = 0
     self.byte_count = 0
+    
+    # Note, in the current implementation these fields are not actually populated
+    # during unpacking. Instead their length is stored in the following counters
+    self.match = ofp_match()
     self.actions = []
+
+    self.match_total_len = 0
+    self.actions_total_len = 0
 
     initHelper(self, kw)
 
@@ -5527,8 +5535,6 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     offset,(length, 
             self.table_id) = _unpack("!HBx", raw, offset)
    
-    offset = self.match.unpack(raw, offset)
-    
     offset,(self.duration_sec, 
             self.duration_nsec, 
             self.priority,
@@ -5540,17 +5546,27 @@ class ofp_flow_multipart (ofp_multipart_body_base):
             self.packet_count, 
             self.byte_count) = _unpack("!QQQ", raw, offset)
 
-    assert (offset - _offset) == 48 + len(self.match)
-    offset,self.actions = _unpack_actions(raw,
-        length - (48 + len(self.match)), offset)
+    # offset = self.match.unpack(raw, offset)
+
+    offset,(match_type, match_len) = _unpack("!HH", raw, offset)
+    # log.warn("unpack got match_len %s", match_len)
+    offset = offset + match_len
+    self.match_total_len = match_len
+
+    offset,(instruction_type, instruction_len) = _unpack("!HH", raw, offset)
+    # log.warn("unpack got instruction_len %s", instruction_len)
+    offset = offset + instruction_len - 4
+    self.actions_total_len = instruction_len - 4
+
+    #assert (offset - _offset) == 48 + len(self.match)
+    #offset,self.actions = _unpack_actions(raw,
+    #    length - (48 + len(self.match)), offset)
+
     assert offset - _offset == len(self)
     return offset
 
   def __len__ (self):
-    l = 48 + len(self.match)
-    for i in self.actions:
-      l += len(i)
-    return l
+    return (56 + self.match_total_len + self.actions_total_len)
 
   def __eq__ (self, other):
     if type(self) != type(other): return False
@@ -5601,7 +5617,10 @@ class ofp_aggregate_multipart_request (ofp_multipart_body_base):
   def __init__ (self, **kw):
     self.match = ofp_match()
     self.table_id = TABLE_ALL
-    self.out_port = OFPP_FLOOD
+    self.out_port = OFPP_ANY
+    self.out_group = OFPG_ANY
+    self.cookie = 0
+    self.cookie_mask = 0
 
     initHelper(self, kw)
 
@@ -5614,8 +5633,8 @@ class ofp_aggregate_multipart_request (ofp_multipart_body_base):
     assert self._assert()
 
     packed = b""
+    packed += struct.pack("!BxxxLLxxxxQQ", self.table_id, self.out_port, self.out_group, self.cookie, self.cookie_mask)
     packed += self.match.pack()
-    packed += struct.pack("!BBH", self.table_id, 0, self.out_port)
     return packed
 
   def unpack (self, raw, offset, avail):
