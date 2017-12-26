@@ -220,11 +220,10 @@ class FlowTrackedSwitch(EventMixin):
             del self.flow_interval_bandwidth_Mbps[key]
             del self.flow_average_bandwidth_Mbps[key]
 
-            # TODO: Uncomment when port stats handling is implemented
-            # del self.port_total_byte_count[key]
-            # del self.port_interval_byte_count[key]
-            # del self.port_interval_bandwidth_Mbps[key]
-            # del self.port_average_bandwidth_Mbps[key]
+            del self.port_total_byte_count[key]
+            del self.port_interval_byte_count[key]
+            del self.port_interval_bandwidth_Mbps[key]
+            del self.port_average_bandwidth_Mbps[key]
 
     def launch_stats_query(self):
         """Sends an OpenFlow FlowStatsRequest and PortStatsRequest to the switch associated with this object."""
@@ -232,8 +231,9 @@ class FlowTrackedSwitch(EventMixin):
             # Multipart request type 1 = OFPMP_FLOW (Individual Flow Statistic Request)
             self.connection.send(of.ofp_multipart_request(type = 1, body = of.ofp_flow_multipart_request()))
             self._last_flow_stats_query_send_time = time.time()
-            #self.connection.send(of.ofp_stats_request(body=of.ofp_port_stats_request()))
-            #self._last_port_stats_query_send_time = time.time()
+            # Multipart request type 4 = OFPMP_PORT (Individual Port Statistic Request) 
+            self.connection.send(of.ofp_multipart_request(type = 4, body = of.ofp_port_multipart_request(port_no = 0xffffffff))) # OFPP_ANY
+            self._last_port_stats_query_send_time = time.time()
             log.debug('Sent flow and port stats requests to switch: ' + dpid_to_str(self.dpid))
 
     def process_port_stats(self, stats, reception_time):
@@ -261,26 +261,28 @@ class FlowTrackedSwitch(EventMixin):
         curr_event_byte_count = {}
 
         # Check for new ports on the switch
-        ports = self.connection.features.ports
+        # ports = self.connection.features.ports
         invalid_stat_ports = []     # Ports added to this list will not have their bandwidth averages updated for this interval
-        for port in ports:
-            if port.port_no == of.OFPP_LOCAL or port.port_no == of.OFPP_CONTROLLER:
-                continue
+        # for port in ports:
+        for port_no in self.tracked_ports:
+            #if port.port_no == of.OFPP_LOCAL or port.port_no == of.OFPP_CONTROLLER:
+            #    continue
 
-            if not port.port_no in self.tracked_ports:
-                continue
+            #if not port.port_no in self.tracked_ports:
+            #    continue
 
-            if not port.port_no in self.port_total_byte_count:
+            if not port_no in self.port_total_byte_count:
                 invalid_stat_ports.append(
-                    port.port_no) # Port bandwidth statistics are not updated on the first interval the port appears
-                self.port_total_byte_count[port.port_no] = 0
-                self.port_interval_byte_count[port.port_no] = 0
-                self.port_interval_bandwidth_Mbps[port.port_no] = 0
-                self.port_average_bandwidth_Mbps[port.port_no] = 0
+                    port_no) # Port bandwidth statistics are not updated on the first interval the port appears
+                self.port_total_byte_count[port_no] = 0
+                self.port_interval_byte_count[port_no] = 0
+                self.port_interval_bandwidth_Mbps[port_no] = 0
+                self.port_average_bandwidth_Mbps[port_no] = 0
 
         # Record the number of bytes transmitted through each port for this monitoring interval
         for port_stat in stats:
             if port_stat.port_no in self.tracked_ports:
+                log.info("Port #" + str(port_stat.port_no) + " read RX bytes: " + str(port_stat.rx_bytes))
                 if port_stat.port_no in curr_event_byte_count:
                     curr_event_byte_count[port_stat.port_no] = curr_event_byte_count[
                                                                port_stat.port_no] + port_stat.rx_bytes
@@ -354,9 +356,10 @@ class FlowTrackedSwitch(EventMixin):
                 self._last_port_stats_query_network_time) + ' ProcessingTime:' + str(self._last_port_stats_query_processing_time) 
                 + ' AvgSwitchLoad:' + str(self.port_average_switch_load) + '\n')
 
-            for port_stat in stats:
-                self.flow_tracker._log_file.write(
-                    'BloomPort:' + str(port_stat.port_no) + ' BloomID:' + str(port_stat.bloom_id) + '\n')
+            # TODO: Determine if log processing scripts depended on this output, and find another way to produce it if so
+            #for port_stat in stats:
+            #    self.flow_tracker._log_file.write(
+            #        'BloomPort:' + str(port_stat.port_no) + ' BloomID:' + str(port_stat.bloom_id) + '\n')
                     
             for port_num in self.port_interval_bandwidth_Mbps:
                 self.flow_tracker._log_file.write(
@@ -730,10 +733,11 @@ class FlowTracker(EventMixin):
             log.info("Received individual flow stats for switch: %s", dpid_to_str(event.dpid))
             self.switches[event.connection.dpid].process_flow_stats(event.ofp[0].body, time.time())
 
-    def _handle_PortStatsReceived(self, event):
-        """Forwards the port statistics contained in the FlowStats event to the appropriate FlowTrackedSwitch."""
+    def _handle_MPPortStatsReceived(self, event):
+        """Forwards the port statistics contained in the PortStats event to the appropriate FlowTrackedSwitch."""
         if event.connection.dpid in self.switches:
-            self.switches[event.connection.dpid].process_port_stats(event.stats, time.time())
+            log.info("Received individual port stats for switch: %s", dpid_to_str(event.dpid))
+            self.switches[event.connection.dpid].process_port_stats(event.ofp[0].body, time.time())
 
     def _handle_MulticastTopoEvent(self, event):
         """Processes a topology event generated by the IGMPManager module, and enables utilization tracking on all inter-switch links."""

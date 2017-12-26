@@ -5818,14 +5818,14 @@ class ofp_port_multipart_request (ofp_multipart_body_base):
     assert self._assert()
 
     packed = b""
-    packed += struct.pack("!H", self.port_no)
-    packed += _PAD6
+    packed += struct.pack("!I", self.port_no)
+    packed += _PAD4
     return packed
 
   def unpack (self, raw, offset, avail):
     _offset = offset
-    offset,(self.port_no,) = _unpack("!H", raw, offset)
-    offset = _skip(raw, offset, 6)
+    offset,(self.port_no,) = _unpack("!I", raw, offset)
+    offset = _skip(raw, offset, 4)
     assert offset - _offset == len(self)
     return offset
 
@@ -5862,6 +5862,8 @@ class ofp_port_multipart (ofp_multipart_body_base):
     self.rx_over_err = 0
     self.rx_crc_err = 0
     self.collisions = 0
+    self.duration_sec = 0
+    self.duration_nsec = 0
 
     initHelper(self, kw)
 
@@ -5869,31 +5871,33 @@ class ofp_port_multipart (ofp_multipart_body_base):
     assert self._assert()
 
     packed = b""
-    packed += struct.pack("!H", self.port_no)
-    packed += _PAD6
-    packed += struct.pack("!QQQQQQQQQQQQ", self.rx_packets,
+    packed += struct.pack("!I", self.port_no)
+    packed += _PAD4
+    packed += struct.pack("!QQQQQQQQQQQQII", self.rx_packets,
                           self.tx_packets, self.rx_bytes, self.tx_bytes,
                           self.rx_dropped, self.tx_dropped,
                           self.rx_errors, self.tx_errors,
                           self.rx_frame_err, self.rx_over_err,
-                          self.rx_crc_err, self.collisions)
+                          self.rx_crc_err, self.collisions,
+                          self.duration_sec, self.duration_nsec)
     return packed
 
   def unpack (self, raw, offset, avail):
     _offset = offset
-    offset,(self.port_no,) = _unpack("!H", raw, offset)
-    offset = _skip(raw, offset, 6)
+    offset,(self.port_no,) = _unpack("!I", raw, offset)
+    offset = _skip(raw, offset, 4)
     offset,(self.rx_packets, self.tx_packets, self.rx_bytes,
             self.tx_bytes, self.rx_dropped, self.tx_dropped,
             self.rx_errors, self.tx_errors, self.rx_frame_err,
-            self.rx_over_err, self.rx_crc_err, self.collisions) = \
-            _unpack("!QQQQQQQQQQQQ", raw, offset)
+            self.rx_over_err, self.rx_crc_err, self.collisions,
+            self.duration_sec, self.duration_nsec) = \
+            _unpack("!QQQQQQQQQQQQII", raw, offset)
     assert offset - _offset == len(self)
     return offset
 
   @staticmethod
   def __len__ ():
-    return 104
+    return 112
 
   def __eq__ (self, other):
     if type(self) != type(other): return False
