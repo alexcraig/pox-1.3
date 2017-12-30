@@ -282,7 +282,7 @@ class FlowTrackedSwitch(EventMixin):
         # Record the number of bytes transmitted through each port for this monitoring interval
         for port_stat in stats:
             if port_stat.port_no in self.tracked_ports:
-                log.info("Port #" + str(port_stat.port_no) + " read RX bytes: " + str(port_stat.rx_bytes))
+                # log.info("Port #" + str(port_stat.port_no) + " read RX bytes: " + str(port_stat.rx_bytes))
                 if port_stat.port_no in curr_event_byte_count:
                     curr_event_byte_count[port_stat.port_no] = curr_event_byte_count[
                                                                port_stat.port_no] + port_stat.rx_bytes
@@ -730,13 +730,13 @@ class FlowTracker(EventMixin):
     def _handle_MPFlowStatsReceived(self, event):
         """Forwards the flow statistics contained in the FlowStats event to the appropriate FlowTrackedSwitch."""
         if event.connection.dpid in self.switches:
-            log.info("Received individual flow stats for switch: %s", dpid_to_str(event.dpid))
+            # log.info("Received individual flow stats for switch: %s", dpid_to_str(event.dpid))
             self.switches[event.connection.dpid].process_flow_stats(event.ofp[0].body, time.time())
 
     def _handle_MPPortStatsReceived(self, event):
         """Forwards the port statistics contained in the PortStats event to the appropriate FlowTrackedSwitch."""
         if event.connection.dpid in self.switches:
-            log.info("Received individual port stats for switch: %s", dpid_to_str(event.dpid))
+            # log.info("Received individual port stats for switch: %s", dpid_to_str(event.dpid))
             self.switches[event.connection.dpid].process_port_stats(event.ofp[0].body, time.time())
 
     def _handle_MulticastTopoEvent(self, event):
