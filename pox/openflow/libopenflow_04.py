@@ -482,6 +482,7 @@ ofp_port_config_rev_map = {
   'OFPPC_NO_FLOOD'     : 1 << 4,  # Do not include this port when flooding.
   'OFPPC_NO_FWD'       : 1 << 5,  # Drop packets forwarded to port.
   'OFPPC_NO_PACKET_IN' : 1 << 6,  # Do not send packet-in msgs for port.
+  'OFPPC_NO_BLOOM_FWD' : 1 << 7,  # Do not consider this port for bloom filter forwarding
 }
 ofp_port_config_map = {
   1 << 0 : 'OFPPC_PORT_DOWN', 
@@ -491,6 +492,7 @@ ofp_port_config_map = {
   1 << 4 : 'OFPPC_NO_FLOOD',
   1 << 5 : 'OFPPC_NO_FWD',
   1 << 6 : 'OFPPC_NO_PACKET_IN',
+  1 << 7 : 'OFPPC_NO_BLOOM_FWD',
 }
 
 # enum ofp_port_state
@@ -568,6 +570,7 @@ ofp_port_rev_map = {
   'OFPP_MAX'        : 0xffffff00,
 
   # Reserved OpenFlow Port ("fake output ports")
+  'OFPP_BLOOM_PORTS': 0xfffffff6,  # Apply bloom filter based forwarding to the packet
   'OFPP_IN_PORT'    : 0xfffffff8,  # Send the packet out the input port. This reserved port must be explicitly used in order to send back out of the input port.
   'OFPP_TABLE'      : 0xfffffff9,  # Submit the packet to the first flow table. NB: This destination port can only be used in packet-out messages.
   'OFPP_NORMAL'     : 0xfffffffa,  # Process with normal L2/L3 switching.
@@ -580,6 +583,7 @@ ofp_port_rev_map = {
 }
 ofp_port_map = {
   0xffffff00 : 'OFPP_MAX',
+  0xfffffff6 : 'OFPP_BLOOM_PORTS',
   0xfffffff8 : 'OFPP_IN_PORT',
   0xfffffff9 : 'OFPP_TABLE',  
   0xfffffffa : 'OFPP_NORMAL',
@@ -749,7 +753,9 @@ ofp_action_type_map = {
   24 : "OFPAT_DEC_NW_TTL",      # Decrement IP TTL. 
   25 : "OFPAT_SET_FIELD",       # Set a header field using OXM TLV format. 
   26 : "OFPAT_PUSH_PBB",        # Push a new PBB service tag (I-TAG) 
-  27 : "OFPAT_POP_PBB",         # Pop the outer PBB service tag (I-TAG) 
+  27 : "OFPAT_POP_PBB",         # Pop the outer PBB service tag (I-TAG)
+  44 : "OFPAT_PUSH_SHIM_HEADER",   # Push a Bloomflow shim header
+  45 : "OFPAT_POP_SHIM_HEADER",    # Pop a Bloomflow shim header 
   0xffff : "OFPAT_EXPERIMENTER", 
 };
 
@@ -3400,6 +3406,105 @@ class ofp_action_pop_pbb (ofp_action_generic):
   def __init__ (self, **kw):
     self.type = 27
 
+
+@openflow_action('OFPAT_PUSH_SHIM_HEADER', 44)
+class ofp_action_push_shim_header (ofp_action_base):
+  def __init__ (self, **kw):
+    self.shim_len = 0
+    self.shim = bytearray(40)
+
+    initHelper(self, kw)
+
+  def pack (self):
+    assert self._assert()
+
+    packed = b""
+    packed += struct.pack("!HHH", self.type, len(self), self.shim_len)
+    for i in range(0, 40):
+        packed += struct.pack('!B', self.shim[i])
+    packed += _PAD2 # Pad
+    return packed
+
+  def unpack (self, raw, offset=0):
+    _offset = offset
+    offset,(self.type, length, self.shim_len) = \
+        _unpack("!HHH", raw, offset)
+    for i in range(0, 40):
+        offset,(self.shim[i],) = _unpack("!B", raw, offset)
+    offset = _skip(raw, offset, 2)
+    
+    # TODO: check length for this and other actions
+    assert offset - _offset == len(self)
+    return offset
+
+  @staticmethod
+  def __len__ ():
+    return 48
+
+  def __eq__ (self, other):
+    if type(self) != type(other): return False
+    if self.type != other.type: return False
+    if len(self) != len(other): return False
+    if self.shim_len != other.shim_len: return False
+    for i in range(0,40):
+        if self.shim[i] != other.shim[i]: return False
+    return True
+
+  def show (self, prefix=''):
+    outstr = ''
+    outstr += prefix + 'type: ' + str(self.type) + '\n'
+    outstr += prefix + 'len: ' + str(len(self)) + '\n'
+    outstr += prefix + 'shim_len: ' + str(self.shim_len) + '\n'
+    outstr += prefix + 'shim: ' + '[',
+    for i in range(0, 40):
+        outstr += str(self.shim[i]) + ','
+    outstr += ']\n'
+    return outstr
+
+    
+@openflow_action('OFPAT_POP_SHIM_HEADER', 45)
+class ofp_action_pop_shim_header (ofp_action_base):
+  def __init__ (self, **kw):
+    self.num_remove_stages = 0
+
+    initHelper(self, kw)
+
+  def pack (self):
+    assert self._assert()
+
+    packed = b""
+    packed += struct.pack("!HHH", self.type, len(self), self.num_remove_stages)
+    packed += _PAD2 # Pad
+    return packed
+
+  def unpack (self, raw, offset=0):
+    _offset = offset
+    offset,(self.type, length, self.num_remove_stages) = \
+        _unpack("!HHH", raw, offset)
+    offset = _skip(raw, offset, 2)
+    
+    # TODO: check length for this and other actions
+    assert offset - _offset == len(self)
+    return offset
+
+  @staticmethod
+  def __len__ ():
+    return 8
+
+  def __eq__ (self, other):
+    if type(self) != type(other): return False
+    if self.type != other.type: return False
+    if len(self) != len(other): return False
+    if self.num_remove_stages != other.num_remove_stages: return False
+    return True
+
+  def show (self, prefix=''):
+    outstr = ''
+    outstr += prefix + 'type: ' + str(self.type) + '\n'
+    outstr += prefix + 'len: ' + str(len(self)) + '\n'
+    outstr += prefix + 'num_remove_stages: ' + str(self.num_remove_stages) + '\n'
+    return outstr
+
 # ----------------------------------------------------------------------
 # experimenter action 
 @openflow_action('OFPAT_EXPERIMENTER', 0xffff)
@@ -4600,6 +4705,7 @@ class ofp_port_mod (ofp_header):
   def __init__ (self, **kw):
     ofp_header.__init__(self)
     self.port_no = 0
+    self.bloom_id = 0
     self.hw_addr = EMPTY_ETH
     self.config = 0
     self.mask = 0
@@ -4625,15 +4731,15 @@ class ofp_port_mod (ofp_header):
       packed += self.hw_addr
     else:
       packed += self.hw_addr.toRaw()
-    packed += struct.pack("!2xLLL4x", self.config, self.mask, self.advertise)
+    packed += struct.pack("!2xLLLH2x", self.config, self.mask, self.advertise, self.bloom_id)
     return packed
 
   def unpack (self, raw, offset=0):
     offset,length = self._unpack_header(raw, offset)
     offset,(self.port_no,) = _unpack("!L2x", raw, offset)
     offset,self.hw_addr = _readether(raw, offset)
-    offset,(self.config, self.mask, self.advertise) = \
-        _unpack("!2xLLL4x", raw, offset)
+    offset,(self.config, self.mask, self.advertise, self.bloom_id) = \
+        _unpack("!2xLLLH2x", raw, offset)
     offset = _skip(raw, offset, 4)
     assert length == len(self)
     return offset,length
@@ -4650,6 +4756,7 @@ class ofp_port_mod (ofp_header):
     if self.config != other.config: return False
     if self.mask != other.mask: return False
     if self.advertise != other.advertise: return False
+    if self.bloom_id != other.bloom_id: return False
     return True
 
   def show (self, prefix=''):
@@ -4661,6 +4768,7 @@ class ofp_port_mod (ofp_header):
     outstr += prefix + 'config: ' + str(self.config) + '\n'
     outstr += prefix + 'mask: ' + str(self.mask) + '\n'
     outstr += prefix + 'advertise: ' + str(self.advertise) + '\n'
+    outstr += prefix + 'bloom_id: ' + str(self.bloom_id) + '\n'
     return outstr
 
 # ----------------------------------------------------------------------
