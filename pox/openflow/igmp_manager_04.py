@@ -255,11 +255,12 @@ class IGMPv3Router(EventMixin):
         self._connected_at = time.time()
         
         # Add a flow mod which sends complete IGMP packets to the controller
+        match = of.ofp_match(dl_type = 0x0800) # , nw_proto = IGMP_PROTOCOL)
         msg = of.ofp_flow_mod()
-        msg.match.dl_type = 0x0800 # IPv4
-        msg.match.nw_proto = IGMP_PROTOCOL # IGMP
+        msg.match = match
         msg.hard_timeout = 0
         msg.idle_timeout = 0
+        msg.priority = 2
         msg.actions.append(of.ofp_action_output(port = of.OFPP_CONTROLLER))
         connection.send(msg)
 
@@ -1180,7 +1181,7 @@ class IGMPManager(EventMixin):
             # Have the receiving router process the IGMP packet accordingly
             receiving_router.process_igmp_event(event, igmp_trace_event)
             
-            # Drop the IGMP packet to prevent it from being uneccesarily forwarded to neighbouring routers
+            # Drop the IGMP packet to prevent it from being unnecessarily forwarded to neighbouring routers
             self.drop_packet(event)
             return
 

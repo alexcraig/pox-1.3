@@ -388,14 +388,13 @@ class MulticastPath(object):
         msg = of.ofp_flow_mod()
         msg.hard_timeout = 0
         msg.idle_timeout = 0
-        msg.priority += 2
+        msg.priority += 4
         if self.src_router_dpid in self.installed_node_list:
             msg.command = of.OFPFC_MODIFY
         else:
             msg.command = of.OFPFC_ADD
-        msg.match.dl_type = 0x800   # IPV4
-        msg.match.nw_dst = self.dst_mcast_address
-        msg.match.nw_src = self.src_ip
+        match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+        msg.match = match
         msg.cookie = self.flow_cookie
         flow_mods[self.src_router_dpid] = msg
         log.debug('Generated flow mod for root node ' + dpid_to_str(self.src_router_dpid))
@@ -428,10 +427,9 @@ class MulticastPath(object):
                 else:
                     msg.command = of.OFPFC_ADD
                 msg.cookie = self.flow_cookie
-                msg.match.dl_type = 0x800   # IPV4
-                msg.match.nw_dst = self.dst_mcast_address
-                msg.match.nw_src = self.src_ip
-                msg.priority += 2
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+                msg.match = match
+                msg.priority += 4
                 flow_mods[receiver[0]] = msg
                 log.debug('Generated flow mod for ' + dpid_to_str(receiver[0]))
                 
@@ -468,9 +466,8 @@ class MulticastPath(object):
             if not router_dpid in flow_mods and router_dpid in self.installed_node_list:
                 msg = of.ofp_flow_mod()
                 msg.cookie = self.flow_cookie
-                msg.match.dl_type = 0x800   # IPV4
-                msg.match.nw_dst = self.dst_mcast_address
-                msg.match.nw_src = self.src_ip
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+                msg.match = match
                 msg.command = of.OFPFC_DELETE
                 flow_mods[router_dpid] = msg
                 log.debug('Removing installed flow on ' + dpid_to_str(router_dpid))
@@ -549,13 +546,13 @@ class MulticastPath(object):
                 msg = of.ofp_flow_mod()
                 msg.hard_timeout = 0
                 msg.idle_timeout = 0
+                msg.priority += 4
                 if edge[0] in self.installed_node_list:
                     msg.command = of.OFPFC_MODIFY
                 else:
                     msg.command = of.OFPFC_ADD
-                msg.match.dl_type = 0x800   # IPV4
-                msg.match.nw_dst = self.dst_mcast_address
-                msg.match.nw_src = self.src_ip
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip) 
+                msg.match = match
                 msg.cookie = self.flow_cookie
                 output_port = self.groupflow_manager.adjacency[edge[0]][edge[1]]
                 msg.actions.append(of.ofp_action_output(port = output_port))
@@ -576,14 +573,14 @@ class MulticastPath(object):
                 msg = of.ofp_flow_mod()
                 msg.hard_timeout = 0
                 msg.idle_timeout = 0
+                msg.priority += 4
                 if receiver[0] in self.installed_node_list:
                     msg.command = of.OFPFC_MODIFY
                 else:
                     msg.command = of.OFPFC_ADD
                 msg.cookie = self.flow_cookie
-                msg.match.dl_type = 0x800   # IPV4
-                msg.match.nw_dst = self.dst_mcast_address
-                msg.match.nw_src = self.src_ip
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+                msg.match = match
                 output_port = receiver[1]
                 msg.actions.append(of.ofp_action_output(port = output_port))
                 outgoing_rules[receiver[0]] = msg
@@ -595,9 +592,8 @@ class MulticastPath(object):
             if not router_dpid in outgoing_rules and router_dpid in self.installed_node_list:
                 msg = of.ofp_flow_mod()
                 msg.cookie = self.flow_cookie
-                msg.match.dl_type = 0x800   # IPV4
-                msg.match.nw_dst = self.dst_mcast_address
-                msg.match.nw_src = self.src_ip
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+                msg.match = match
                 msg.command = of.OFPFC_DELETE
                 outgoing_rules[router_dpid] = msg
                 #log.debug('Removed rule on router ' + dpid_to_str(router_dpid) + ' for group ' + str(self.dst_mcast_address))
@@ -630,10 +626,8 @@ class MulticastPath(object):
         for router_dpid in self.node_list:
             msg = of.ofp_flow_mod()
             msg.cookie = self.flow_cookie
-            msg.match.dl_type = 0x800   # IPV4
-            msg.match.nw_dst = self.dst_mcast_address
-            msg.match.nw_src = self.src_ip
-            msg.match.in_port = None
+            match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip, in_port = None)
+            msg.match = match
             msg.command = of.OFPFC_DELETE
             connection = core.openflow.getConnection(router_dpid)
             if connection is not None:
@@ -664,6 +658,7 @@ class GroupFlowManager(EventMixin):
             core.openflow.addListeners(self, priority = 99)
             core.openflow_igmp_manager.addListeners(self, priority = 99)
             core.openflow_flow_tracker.addListeners(self, priority = 99)
+            log.info("Startup Complete")
 
         self.link_weight_type = link_weight_type
         log.info('Set link weight type: ' + str(self.link_weight_type))
@@ -822,9 +817,10 @@ class GroupFlowManager(EventMixin):
     
     def _handle_PacketIn(self, event):
         """Processes PacketIn events to detect multicast sender IPs."""
+        #log.info('_handle_PacketIn called')
         router_dpid = event.connection.dpid
         if not router_dpid in self.node_set:
-            # log.debug('Got packet from unrecognized router.')
+            log.info('Got packet from unrecognized router.')
             return  # Ignore packets from unrecognized routers
             
         igmp_pkt = event.parsed.find(pkt.igmpv3)
@@ -835,7 +831,9 @@ class GroupFlowManager(EventMixin):
         if not ipv4_pkt is None:
             # ==== IPv4 Packet ====
             # Check the destination address to see if this is a multicast packet
+            # log.info('Got IPv4 packet from Switch: ' + dpid_to_str(event.dpid) + ' - Port: ' + str(event.port))
             if ipv4_pkt.dstip.inNetwork('224.0.0.0/4'):
+                log.info('Got multicast packet from Switch: ' + dpid_to_str(event.dpid) + ' - Port: ' + str(event.port))
                 # Ignore multicast packets from adjacent routers
                 for router_dpid2 in self.adjacency[router_dpid]:
                     if self.adjacency[router_dpid][router_dpid2] == event.port:
@@ -1120,10 +1118,10 @@ class GroupFlowManager(EventMixin):
             msg.hard_timeout = 0
             msg.idle_timeout = 0
             msg.command = of.OFPFC_ADD
-            msg.match.dl_type = 0x800   # IPV4
-            msg.priority += 1
+            match = of.ofp_match(dl_type = 0x0800, dl_vlan = BLOOMFLOW_RESERVED_VLAN_ID)
+            msg.match = match
+            msg.priority += 3
             msg.cookie = BLOOMFLOW_RESERVED_VLAN_ID
-            msg.match.dl_vlan = BLOOMFLOW_RESERVED_VLAN_ID
             msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
             event.connection.send(msg)
             log.info('Installed bloom filter forwarding rule on ' + dpid_to_str(event.dpid))
