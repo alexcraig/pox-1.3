@@ -2070,14 +2070,26 @@ class ofp_match (ofp_base):
         oxm_length = 6, data = binascii.unhexlify(self._dl_dst.toStr('', False)), value = self._dl_dst.toStr(':', False),))
     
     if self._dl_src != EMPTY_ETH:
-      oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_ETH_DST'],
+      oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_ETH_SRC'],
         oxm_length = 6, data = binascii.unhexlify(self._dl_src.toStr('', False)), value = self._dl_src.toStr(':', False),))
+    
+    # VLAN Fields
+    if self._dl_vlan != 0:
+        oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
+            oxm_length = 2, data = struct.pack('!H', self._dl_type), value = ('0x' + str(self._dl_vlan)),))
 
     # IP Fields
     if self._nw_proto != 0:
-      oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_IP_PROTO'],
-        oxm_length = 1, data = struct.pack("!B", self._nw_proto), value = str(self._nw_proto),))  
+        oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_IP_PROTO'],
+            oxm_length = 1, data = struct.pack("!B", self._nw_proto), value = str(self._nw_proto),)) 
 
+    if self._nw_src != 0:
+        oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_IPV4_SRC'],
+            oxm_length = 4, data = self._nw_src.toRaw(), value = str(self._nw_src),))
+    
+    if self._nw_dst != 0:
+        oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_IPV4_DST'],
+            oxm_length = 4, data = self._nw_dst.toRaw(), value = str(self._nw_dst),))
 
     self.set_oxm_fields(oxms)
       
