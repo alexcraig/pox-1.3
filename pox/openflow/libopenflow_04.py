@@ -5670,6 +5670,8 @@ class ofp_flow_multipart (ofp_multipart_body_base):
 
     offset,(match_type, match_len) = _unpack("!HH", raw, offset)
     pad_bytes = 8 - (match_len % 8)
+    if pad_bytes == 8:
+        pad_bytes = 0
     # log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
     offset = offset + match_len + pad_bytes - 4 # Already read 4 byte type and length 
     self.match_total_len = match_len + pad_bytes
