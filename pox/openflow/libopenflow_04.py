@@ -5605,7 +5605,7 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     self.actions = []
 
     self.match_total_len = 0
-    self.actions_total_len = 0
+    self.instruction_total_len = 0
 
     initHelper(self, kw)
 
@@ -5657,23 +5657,24 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     # offset = self.match.unpack(raw, offset)
 
     offset,(match_type, match_len) = _unpack("!HH", raw, offset)
-    # log.warn("unpack got match_len %s", match_len)
-    offset = offset + match_len
-    self.match_total_len = match_len
+    pad_bytes = 8 - (match_len % 8)
+    # log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
+    offset = offset + match_len + pad_bytes - 4 # Already read 4 byte type and length 
+    self.match_total_len = match_len + pad_bytes
 
     offset,(instruction_type, instruction_len) = _unpack("!HHxxxx", raw, offset)
-    # log.warn("unpack got instruction_len %s", instruction_len)
-    self.actions_total_len = instruction_len - 4
+    # log.warn("unpack got instruction_type %s, instruction_len %s", instruction_type, instruction_len)
+    self.instruction_total_len = instruction_len
 
-    # log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 12)))
+    # log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 8)))
     offset,self.actions = _unpack_actions(raw,
-        length - (48 + self.match_total_len + 12), offset)
+        length - (48 + self.match_total_len + 8), offset)
 
     assert offset - _offset == len(self)
     return offset
 
   def __len__ (self):
-    return (56 + self.match_total_len + self.actions_total_len)
+    return (48 + self.match_total_len + self.instruction_total_len)
 
   def __eq__ (self, other):
     if type(self) != type(other): return False
