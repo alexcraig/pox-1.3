@@ -3360,27 +3360,30 @@ class ofp_action_set_field (ofp_action_base):
     # pack the correct length, OXM field and padding
     if isinstance(self.oxm_field, oxm_match_field):
       self.length = len(self.oxm_field) + 4
+      pad_len = (8 - (self.length % 8)) % 8
+      self.length += pad_len
+      # log.info('ofp_action_set_field - self.length: %s', self.length)
       packed += struct.pack("!H", self.length)
       packed += self.oxm_field.pack()
- 
-      pad_len = (8 - (self.length % 8)) % 8
+
+      # log.info("ofp_action_set_field - pad len: %s", pad_len)
       packed += struct.pack("!"+str(pad_len)+"x")
 
     else:
       packed += struct.pack("!H", self.length)
 
+    # log.info("ofp_action_set_field - len(packed): %s", len(packed))
     return packed
 
   def unpack (self, raw, offset=0):
+    # TODO: Implement actual unpacking
     _offset = offset
     offset,(self.type, 
             self.length) = _unpack("!HH", raw, offset)
 
-    self.oxm_field = self.oxm_field.pack()
-
-    pad_len = (8 - (self.length % 8)) % 8
-
-    offset = _unpack("!"+str(pad_len)+"x", raw, offset)
+    # self.oxm_field = self.oxm_field.unpack()
+    
+    offset = offset + (self.length - 4) # _unpack("!"+str(self.length - 4)+"x", raw, offset)
 
     assert offset - _offset == len(self)
     return offset
@@ -3922,7 +3925,7 @@ class ofp_instruction_actions (ofp_instruction_base):
     else:
       for act in self.actions:
         if act is not None:
-          log.info(str(act))
+          # log.info(str(act))
           actionlen += len(act)
 
     return 8 + actionlen
@@ -5672,15 +5675,15 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     pad_bytes = 8 - (match_len % 8)
     if pad_bytes == 8:
         pad_bytes = 0
-    log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
+    #log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
     offset = offset + match_len + pad_bytes - 4 # Already read 4 byte type and length 
     self.match_total_len = match_len + pad_bytes
 
     offset,(instruction_type, instruction_len) = _unpack("!HHxxxx", raw, offset)
-    log.warn("unpack got instruction_type %s, instruction_len %s", instruction_type, instruction_len)
+    #log.warn("unpack got instruction_type %s, instruction_len %s", instruction_type, instruction_len)
     self.instruction_total_len = instruction_len
 
-    log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 8)))
+    #log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 8)))
     offset,self.actions = _unpack_actions(raw,
         length - (48 + self.match_total_len + 8), offset)
 

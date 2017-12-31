@@ -407,14 +407,15 @@ class MulticastPath(object):
             msg.actions.append(vlan_push_action)
             vlan_set_action = of.ofp_action_set_field()
             vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
-                    oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ETHERTYPE | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ETHERTYPE | 0x1000),)
+                    oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
+            vlan_set_action.pack()
             msg.actions.append(vlan_set_action)
             shim_action = of.ofp_action_push_shim_header()
             shim_header_bytes = complete_shim_header.tobytes()
             for i in range(0, len(shim_header_bytes)):
                 shim_action.shim[i] = shim_header_bytes[i]
             shim_action.shim_len = len(shim_header_bytes)
-            msg.actions.append(shim_action)
+            msg.actions.append(shim_action) # TODO: ADD THIS BACK LATER
             log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
             log.info('Actions: ' + str(msg.actions))
         for edge in edges_to_install[0]:
@@ -426,7 +427,7 @@ class MulticastPath(object):
                                 actions = msg.actions, 
                                 type = 4, # OFPIT_APPLY_ACTION
                                 ))
-        log.info("Ingress Flow Mod Instructions: " + str(msg.instructions))
+        #log.info("Ingress Flow Mod Instructions: " + str(msg.instructions))
         
         # Now, loop through all receivers, and generate group specific forwarding entries as necessary
         for receiver in reception_state:
@@ -467,7 +468,7 @@ class MulticastPath(object):
                                 actions = msg.actions, 
                                 type = 4, # OFPIT_APPLY_ACTION
                                 ))
-                log.info('Egress Flow Mod Instructions: ' + str(msg.instructions))
+                # log.info('Egress Flow Mod Instructions: ' + str(msg.instructions))
                     
             output_port = receiver[1]
             if receiver[0] == self.src_router_dpid:
@@ -496,7 +497,7 @@ class MulticastPath(object):
         for router_dpid in flow_mods:
             connection = core.openflow.getConnection(router_dpid)
             if connection is not None:
-                log.info("Installing flow mod: " + str(flow_mods[router_dpid]))
+                # log.info("Installing flow mod: " + str(flow_mods[router_dpid]))
                 connection.send(flow_mods[router_dpid])
                 if not flow_mods[router_dpid].command == of.OFPFC_DELETE:
                     self.installed_node_list.append(router_dpid)
