@@ -103,6 +103,7 @@ MAX_FILTER_LEN_BITS = 200
 
 # Constant which determines the VLAN ID reserved for bloom filter matching
 BLOOMFLOW_RESERVED_VLAN_ID = 2042
+BLOOMFLOW_RESERVED_VLAN_ETHERTYPE = 0x8100
 
 # Default flow replacement interval
 FLOW_REPLACEMENT_INTERVAL_SECONDS = 10
@@ -401,19 +402,31 @@ class MulticastPath(object):
         if complete_shim_header is not None:
             # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
             log.debug('The generated tree contains more than 1 hop, applying shim header and VLAN ID')
-            vlan_action = of.ofp_action_vlan_vid()
-            vlan_action.vlan_vid = BLOOMFLOW_RESERVED_VLAN_ID
-            msg.actions.append(vlan_action)
+            vlan_push_action = of.ofp_action_push_vlan()
+            vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
+            msg.actions.append(vlan_push_action)
+            vlan_set_action = of.ofp_action_set_field()
+            vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
+                    oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ETHERTYPE | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ETHERTYPE | 0x1000),)
+            msg.actions.append(vlan_set_action)
             shim_action = of.ofp_action_push_shim_header()
             shim_header_bytes = complete_shim_header.tobytes()
             for i in range(0, len(shim_header_bytes)):
                 shim_action.shim[i] = shim_header_bytes[i]
             shim_action.shim_len = len(shim_header_bytes)
             msg.actions.append(shim_action)
-            log.debug('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
+            log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
+            log.info('Actions: ' + str(msg.actions))
         for edge in edges_to_install[0]:
             msg.actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
             log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+            
+        msg.instructions = []
+        msg.instructions.append(of.ofp_instruction_actions_apply(
+                                actions = msg.actions, 
+                                type = 4, # OFPIT_APPLY_ACTION
+                                ))
+        log.info("Ingress Flow Mod Instructions: " + str(msg.instructions))
         
         # Now, loop through all receivers, and generate group specific forwarding entries as necessary
         for receiver in reception_state:
@@ -427,7 +440,7 @@ class MulticastPath(object):
                 else:
                     msg.command = of.OFPFC_ADD
                 msg.cookie = self.flow_cookie
-                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
+                match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip, dl_vlan = BLOOMFLOW_RESERVED_VLAN_ID | 0x1000)
                 msg.match = match
                 msg.priority += 4
                 flow_mods[receiver[0]] = msg
@@ -446,8 +459,15 @@ class MulticastPath(object):
                         msg.actions.append(of.ofp_action_pop_shim_header(num_remove_stages = stages_to_remove))
                         
                     log.debug('Added VLAN stripping action on ' + dpid_to_str(receiver[0]))
-                    vlan_action = of.ofp_action_strip_vlan()
+                    vlan_action = of.ofp_action_pop_vlan()
                     msg.actions.append(vlan_action)
+                
+                msg.instructions = []
+                msg.instructions.append(of.ofp_instruction_actions_apply(
+                                actions = msg.actions, 
+                                type = 4, # OFPIT_APPLY_ACTION
+                                ))
+                log.info('Egress Flow Mod Instructions: ' + str(msg.instructions))
                     
             output_port = receiver[1]
             if receiver[0] == self.src_router_dpid:
@@ -476,6 +496,7 @@ class MulticastPath(object):
         for router_dpid in flow_mods:
             connection = core.openflow.getConnection(router_dpid)
             if connection is not None:
+                log.info("Installing flow mod: " + str(flow_mods[router_dpid]))
                 connection.send(flow_mods[router_dpid])
                 if not flow_mods[router_dpid].command == of.OFPFC_DELETE:
                     self.installed_node_list.append(router_dpid)
@@ -1118,7 +1139,7 @@ class GroupFlowManager(EventMixin):
             msg.hard_timeout = 0
             msg.idle_timeout = 0
             msg.command = of.OFPFC_ADD
-            match = of.ofp_match(dl_type = 0x0800, dl_vlan = BLOOMFLOW_RESERVED_VLAN_ID)
+            match = of.ofp_match(dl_type = 0x0800, dl_vlan = BLOOMFLOW_RESERVED_VLAN_ID | 0x1000)
             msg.match = match
             msg.priority += 3
             msg.cookie = BLOOMFLOW_RESERVED_VLAN_ID

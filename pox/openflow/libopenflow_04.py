@@ -2076,7 +2076,7 @@ class ofp_match (ofp_base):
     # VLAN Fields
     if self._dl_vlan != 0:
         oxms.append(oxm_match_field(oxm_field = oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
-            oxm_length = 2, data = struct.pack('!H', self._dl_type), value = ('0x' + str(self._dl_vlan)),))
+            oxm_length = 2, data = struct.pack('!H', self._dl_vlan), value = ('0x' + str(self._dl_vlan)),))
 
     # IP Fields
     if self._nw_proto != 0:
@@ -3162,7 +3162,6 @@ class ofp_action_push_vlan (ofp_action_base):
     assert offset - _offset == len(self)
     return offset
 
-  @staticmethod
   def __len__ (self):
     return 8
 
@@ -3365,7 +3364,7 @@ class ofp_action_set_field (ofp_action_base):
       packed += self.oxm_field.pack()
  
       pad_len = (8 - (self.length % 8)) % 8
-      packed += struct.pack("!"+str(pad-len)+"x")
+      packed += struct.pack("!"+str(pad_len)+"x")
 
     else:
       packed += struct.pack("!H", self.length)
@@ -3467,7 +3466,7 @@ class ofp_action_push_shim_header (ofp_action_base):
     outstr += prefix + 'type: ' + str(self.type) + '\n'
     outstr += prefix + 'len: ' + str(len(self)) + '\n'
     outstr += prefix + 'shim_len: ' + str(self.shim_len) + '\n'
-    outstr += prefix + 'shim: ' + '[',
+    outstr += prefix + 'shim: ' + '['
     for i in range(0, 40):
         outstr += str(self.shim[i]) + ','
     outstr += ']\n'
@@ -3922,7 +3921,8 @@ class ofp_instruction_actions (ofp_instruction_base):
       actionlen = 0
     else:
       for act in self.actions:
-        if act:
+        if act is not None:
+          log.info(str(act))
           actionlen += len(act)
 
     return 8 + actionlen
@@ -5672,15 +5672,15 @@ class ofp_flow_multipart (ofp_multipart_body_base):
     pad_bytes = 8 - (match_len % 8)
     if pad_bytes == 8:
         pad_bytes = 0
-    # log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
+    log.warn("unpack got match_type %s, match_len %s, pad_bytes %s", match_type, match_len, pad_bytes)
     offset = offset + match_len + pad_bytes - 4 # Already read 4 byte type and length 
     self.match_total_len = match_len + pad_bytes
 
     offset,(instruction_type, instruction_len) = _unpack("!HHxxxx", raw, offset)
-    # log.warn("unpack got instruction_type %s, instruction_len %s", instruction_type, instruction_len)
+    log.warn("unpack got instruction_type %s, instruction_len %s", instruction_type, instruction_len)
     self.instruction_total_len = instruction_len
 
-    # log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 8)))
+    log.info("Actions unpack len: %s", str(length - (48 + self.match_total_len + 8)))
     offset,self.actions = _unpack_actions(raw,
         length - (48 + self.match_total_len + 8), offset)
 
