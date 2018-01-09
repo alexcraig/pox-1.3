@@ -161,10 +161,14 @@ class MulticastPath(object):
                 edges = self.weighted_topo_graph
             else:
                 edges = self.multi_tree_increment_topo_graph(edges, self.path_tree_map[mtree_index - 1])
+                
             nodes = set(self.node_list)
             graph = defaultdict(list)
+            #log.debug('====\nDjikstra algo using weighted edge graph:')
             for src,dst,cost in edges:
+                #log.debug(dpid_to_str(src) + ' -> ' + dpid_to_str(dst) + ' W: ' + str(cost))
                 graph[src].append((cost, dst))
+            #log.debug('====')
          
             path_tree_map = defaultdict(lambda : None)
             queue, seen = [(0,self.src_router_dpid,())], set()
@@ -296,6 +300,8 @@ class MulticastPath(object):
             groupflow_trace_event.set_route_processing_start_time(self.dst_mcast_address, self.src_ip)
         
         # Edges to install is a dictionary in this case, keyed by the hop distance from the root node of the tree
+        edges_to_install = []
+        node_hop_distance = []
         edges_to_install = defaultdict(lambda : None)
         node_hop_distance = defaultdict(lambda : None)
         node_hop_distance[self.src_router_dpid] = 0
@@ -440,17 +446,18 @@ class MulticastPath(object):
         msg.cookie = self.flow_cookie
         flow_mods[self.src_router_dpid] = msg
         log.debug('Generated flow mod for root node ' + dpid_to_str(self.src_router_dpid))
+        vlan_push_action = of.ofp_action_push_vlan()
+        vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
+        msg.actions.append(vlan_push_action)
+        vlan_set_action = of.ofp_action_set_field()
+        vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
+                oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
+        vlan_set_action.pack()
+        msg.actions.append(vlan_set_action)
+            
         if complete_shim_header is not None:
             # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
-            log.debug('The generated tree contains more than 1 hop, applying shim header and VLAN ID')
-            vlan_push_action = of.ofp_action_push_vlan()
-            vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
-            msg.actions.append(vlan_push_action)
-            vlan_set_action = of.ofp_action_set_field()
-            vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
-                    oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
-            vlan_set_action.pack()
-            msg.actions.append(vlan_set_action)
+            log.debug('The generated tree contains more than 1 hop, applying shim header')
             shim_action = of.ofp_action_push_shim_header()
             shim_header_bytes = complete_shim_header.tobytes()
             for i in range(0, len(shim_header_bytes)):
@@ -459,9 +466,11 @@ class MulticastPath(object):
             msg.actions.append(shim_action) # TODO: ADD THIS BACK LATER
             log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
             log.info('Actions: ' + str(msg.actions))
-        for edge in edges_to_install[0]:
-            msg.actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
-            log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+        
+        if edges_to_install[0] is not None:
+            for edge in edges_to_install[0]:
+                msg.actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+                log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
             
         msg.instructions = []
         msg.instructions.append(of.ofp_instruction_actions_apply(
@@ -488,21 +497,20 @@ class MulticastPath(object):
                 flow_mods[receiver[0]] = msg
                 log.debug('Generated flow mod for ' + dpid_to_str(receiver[0]))
                 
-                if complete_shim_header is not None:
-                    # Generate the actions required to strip the VLAN ID and remaining filter stages at this
-                    # receiver node. Note that 2 filter stage is removed by the bloom filter forwarding operation
-                    if node_hop_distance[receiver[0]] < len(edges_to_install):
-                        log.debug('Added bloom filter forwarding action on ' + dpid_to_str(receiver[0]))
-                        msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
-                        
-                    stages_to_remove = len(edges_to_install) - node_hop_distance[receiver[0]]
-                    if stages_to_remove > 0:
-                        log.debug('Added pop stage header action on ' + dpid_to_str(receiver[0]) + ', stages to remove: ' + str(stages_to_remove))
-                        msg.actions.append(of.ofp_action_pop_shim_header(num_remove_stages = stages_to_remove))
-                        
-                    log.debug('Added VLAN stripping action on ' + dpid_to_str(receiver[0]))
-                    vlan_action = of.ofp_action_pop_vlan()
-                    msg.actions.append(vlan_action)
+                # Generate the actions required to strip the VLAN ID and remaining filter stages at this
+                # receiver node. Note that 2 filter stage is removed by the bloom filter forwarding operation
+                if node_hop_distance[receiver[0]] < len(edges_to_install):
+                    log.debug('Added bloom filter forwarding action on ' + dpid_to_str(receiver[0]))
+                    msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
+                    
+                stages_to_remove = len(edges_to_install) - node_hop_distance[receiver[0]]
+                if stages_to_remove > 0:
+                    log.debug('Added pop stage header action on ' + dpid_to_str(receiver[0]) + ', stages to remove: ' + str(stages_to_remove))
+                    msg.actions.append(of.ofp_action_pop_shim_header(num_remove_stages = stages_to_remove))
+                    
+                log.debug('Added VLAN stripping action on ' + dpid_to_str(receiver[0]))
+                vlan_action = of.ofp_action_pop_vlan()
+                msg.actions.append(vlan_action)
                 
                 msg.instructions = []
                 msg.instructions.append(of.ofp_instruction_actions_apply(
@@ -518,7 +526,7 @@ class MulticastPath(object):
                 log.debug('Added output action on root ' + dpid_to_str(receiver[0]) + ' Port: ' + str(output_port))
                 flow_mods[receiver[0]].actions.insert(0, of.ofp_action_output(port = output_port))
             else:
-                # For all other nodes, the actions neccesary to strip the VLAN ID and any remaining filter
+                # For all other nodes, the actions necessary to strip the VLAN ID and any remaining filter
                 # stages were already added to the action list when the flow mod was created
                 log.debug('Added output action on ' + dpid_to_str(receiver[0]) + ' Port: ' + str(output_port))
                 flow_mods[receiver[0]].actions.append(of.ofp_action_output(port = output_port))
@@ -1008,7 +1016,7 @@ class GroupFlowManager(EventMixin):
         # log.info(event.debug_str())
         self.adjacency = event.adjacency_map
         self.parse_topology_graph(event.adjacency_map)
-        log.info(self.get_topo_debug_str())
+        # log.info(self.get_topo_debug_str())
         
         if self.tree_encoding_mode == TREE_ENCODING_BLOOM_FILTER:
             # Assign bloom identifiers to any pair of ports which came up in this event
