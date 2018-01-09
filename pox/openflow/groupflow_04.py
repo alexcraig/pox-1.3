@@ -67,6 +67,7 @@ from heapq import heappop, heappush
 import math
 import time
 from bitarray import bitarray
+from random import randint
 
 # POX dependencies
 from pox.openflow.discovery_04 import Discovery
@@ -117,6 +118,10 @@ CONG_THRESHOLD_FLOW_REPLACEMENT = 2
 # The below constants enable/configure experimental features which have not yet been integrated into the module API
 ENABLE_OUT_OF_ORDER_PACKET_DELIVERY = False
 FIXED_BLOOM_IDS = True
+RANDOM_NUM_IDS_PER_ROUTER = True
+FIXED_BIDS_PER_ROUTER = 50
+RANDOM_BIDS_PER_ROUTER_MIN = 20
+RANDOM_BIDS_PER_ROUTER_MAX = 60 
 
 class MulticastPath(object):
     """Manages multicast route calculation and installation for a single pair of multicast group and multicast sender."""
@@ -126,7 +131,11 @@ class MulticastPath(object):
         self.ingress_port = ingress_port
         self.src_router_dpid = src_router_dpid
         self.dst_mcast_address = dst_mcast_address
-        self.path_tree_map = defaultdict(lambda : None)     # self.path_tree_map[router_dpid] = Complete path from receiver router_dpid to src
+        self.num_multi_trees = groupflow_manager.num_multi_trees
+        # self.path_tree_map[mtree_index][router_dpid] = Complete path from receiver router_dpid to src for multi_tree mtree_index
+        self.path_tree_map = [] # defaultdict(lambda : None)     # self.path_tree_map[mtree_index][router_dpid] = Complete path from receiver router_dpid to src for multi_tree mtree_index
+        for i in range(0, self.num_multi_trees):
+            self.path_tree_map.append(defaultdict(lambda : None))
         self.weighted_topo_graph = []
         self.node_list = []                 # List of all managed router dpids
         self.installed_node_list = []       # List of all router dpids with rules currently installed
@@ -147,31 +156,35 @@ class MulticastPath(object):
     
         self._calc_link_weights()
         
-        nodes = set(self.node_list)
-        edges = self.weighted_topo_graph
-        graph = defaultdict(list)
-        for src,dst,cost in edges:
-            graph[src].append((cost, dst))
-     
-        path_tree_map = defaultdict(lambda : None)
-        queue, seen = [(0,self.src_router_dpid,())], set()
-        while queue:
-            (cost,node1,path) = heappop(queue)
-            if node1 not in seen:
-                seen.add(node1)
-                path = (node1, path)
-                path_tree_map[node1] = path
-     
-                for next_cost, node2 in graph.get(node1, ()):
-                    if node2 not in seen:
-                        new_path_cost = cost + next_cost
-                        heappush(queue, (new_path_cost, node2, path))
-        
-        self.path_tree_map = path_tree_map
-        
-        log.debug('Calculated shortest path tree for source at router_dpid: ' + dpid_to_str(self.src_router_dpid))
-        for node in self.path_tree_map:
-            log.debug('Path to Node ' + dpid_to_str(node) + ': ' + str(self.path_tree_map[node]))
+        for mtree_index in range(0, self.num_multi_trees):
+            if mtree_index == 0:
+                edges = self.weighted_topo_graph
+            else:
+                edges = self.multi_tree_increment_topo_graph(edges, self.path_tree_map[mtree_index - 1])
+            nodes = set(self.node_list)
+            graph = defaultdict(list)
+            for src,dst,cost in edges:
+                graph[src].append((cost, dst))
+         
+            path_tree_map = defaultdict(lambda : None)
+            queue, seen = [(0,self.src_router_dpid,())], set()
+            while queue:
+                (cost,node1,path) = heappop(queue)
+                if node1 not in seen:
+                    seen.add(node1)
+                    path = (node1, path)
+                    path_tree_map[node1] = path
+         
+                    for next_cost, node2 in graph.get(node1, ()):
+                        if node2 not in seen:
+                            new_path_cost = cost + next_cost
+                            heappush(queue, (new_path_cost, node2, path))
+            
+            self.path_tree_map[mtree_index] = path_tree_map
+            
+            log.debug('Calculated shortest path tree ' + str(mtree_index) + ' for source at router_dpid: ' + dpid_to_str(self.src_router_dpid))
+            for node in self.path_tree_map[mtree_index]:
+                log.debug('Path to Node ' + dpid_to_str(node) + ': ' + str(self.path_tree_map[mtree_index][node]))
         
         if not groupflow_trace_event is None:
             groupflow_trace_event.set_tree_calc_end_time()
@@ -232,9 +245,37 @@ class MulticastPath(object):
             weighted_topo_graph.append([edge[0], edge[1], link_weight])
         self.weighted_topo_graph = weighted_topo_graph
         
-        log.debug('Calculated link weights for source at router_dpid: ' + dpid_to_str(self.src_router_dpid))
-        for edge in self.weighted_topo_graph:
-            log.debug(dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]) + ' W: ' + str(edge[2]))
+        #log.debug('Calculated link weights for source at router_dpid: ' + dpid_to_str(self.src_router_dpid))
+        #for edge in self.weighted_topo_graph:
+        #    log.debug(dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]) + ' W: ' + str(edge[2]))
+    
+    
+    def multi_tree_increment_topo_graph(self, weighted_topo_graph, previous_tree_path_map):
+        # First, determine the set of edges which were used in the previous tree
+        calculated_path_router_dpids = []
+        prev_tree_edge_set = Set()
+        reception_state = self.groupflow_manager.get_reception_state(self.dst_mcast_address, self.src_ip)
+        for receiver in reception_state:
+            if receiver[0] == self.src_router_dpid:
+                continue
+            if receiver[0] in calculated_path_router_dpids:
+                continue
+            receiver_path = previous_tree_path_map[receiver[0]]
+            while receiver_path[1]:
+                prev_tree_edge_set.add((receiver_path[1][0], receiver_path[0]))
+                receiver_path = receiver_path[1]
+                
+        # Next, iterate through all edges in the provided weighted_topo_graph, and increase their weight by 
+        # self.groupflow_manager.static_link_weight if they were used in the previous tree
+        log.debug('Increasing weights of previously used edges:')
+        for edge in weighted_topo_graph:
+            edge_tuple = (edge[0], edge[1])
+            if edge_tuple in prev_tree_edge_set:
+                edge[2] = edge[2] +  self.groupflow_manager.static_link_weight
+                log.debug(dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]) + ' W: ' + str(edge[2]))
+        
+        return weighted_topo_graph
+        
     
     def install_openflow_rules(self, groupflow_trace_event = None):
         """Selects routes for active receivers from the cached shortest path tree, and installs/removes OpenFlow rules accordingly.
@@ -266,7 +307,7 @@ class MulticastPath(object):
             if receiver[0] in calculated_path_router_dpids:
                 continue
             
-            receiver_path = self.path_tree_map[receiver[0]]
+            receiver_path = self.path_tree_map[1][receiver[0]]
             log.debug('Receiver path for receiver ' + str(receiver[0]) + ': ' + str(receiver_path))
             if receiver_path is None:
                 log.warn('Path could not be determined for receiver ' + dpid_to_str(receiver[0]) + ' (network is not fully connected)')
@@ -533,7 +574,7 @@ class MulticastPath(object):
                 continue
             
             # log.debug('Building path for receiver on router: ' + dpid_to_str(receiver[0]))
-            receiver_path = self.path_tree_map[receiver[0]]
+            receiver_path = self.path_tree_map[0][receiver[0]]
             log.debug('Receiver path for receiver ' + str(receiver[0]) + ': ' + str(receiver_path))
             if receiver_path is None:
                 log.warn('Path could not be determined for receiver ' + dpid_to_str(receiver[0]) + ' (network is not fully connected)')
@@ -674,7 +715,7 @@ class GroupFlowManager(EventMixin):
     """The GroupFlowManager implements multicast routing for OpenFlow networks."""
     _core_name = "openflow_groupflow"
     
-    def __init__(self, link_weight_type, static_link_weight, util_link_weight, flow_replacement_mode, flow_replacement_interval, tree_encoding_mode):
+    def __init__(self, link_weight_type, static_link_weight, util_link_weight, flow_replacement_mode, flow_replacement_interval, tree_encoding_mode, num_multi_trees):
         # Listen to dependencies
         def startup():
             core.openflow.addListeners(self, priority = 99)
@@ -700,6 +741,10 @@ class GroupFlowManager(EventMixin):
         self.multicast_paths_by_flow_cookie = {} # Stores references to the same objects as self.multicast_paths, except this map is keyed by flow_cookie
         self._next_mcast_group_cookie = 54345;  # Arbitrary, not set to 1 to avoid conflicts with other modules
         
+        self.bloom_ids_per_router = FIXED_BIDS_PER_ROUTER
+        if RANDOM_NUM_IDS_PER_ROUTER:
+            self.bloom_ids_per_router = randint(RANDOM_BIDS_PER_ROUTER_MIN, RANDOM_BIDS_PER_ROUTER_MAX)
+              
         # Desired reception state as delivered by the IGMP manager, keyed by the dpid of the router for which
         # the reception state applies
         self.desired_reception_state = defaultdict(lambda : None)
@@ -718,6 +763,9 @@ class GroupFlowManager(EventMixin):
             log.info('Set Tree Encoding Mode: STANDARD')
         elif self.tree_encoding_mode == TREE_ENCODING_BLOOM_FILTER:
             log.info('Set Tree Encoding Mode: BLOOM FILTER')
+            
+        self.num_multi_trees = num_multi_trees
+        log.info('Num Multi Trees: ' + str(self.num_multi_trees))
         
         # Setup listeners
         core.call_when_ready(startup, ('openflow', 'openflow_igmp_manager', 'openflow_flow_tracker'))
@@ -1049,7 +1097,7 @@ class GroupFlowManager(EventMixin):
         msg.port_no = port_no
         if self.bloom_id_map[router_dpid][port_no] is None:
             if FIXED_BLOOM_IDS:
-                msg.bloom_id = (router_dpid * 50) + port_no
+                msg.bloom_id = (router_dpid * self.bloom_ids_per_router) + port_no
             else:
                 msg.bloom_id = self.next_bloom_id
             self.bloom_id_map[router_dpid][port_no] = msg.bloom_id
@@ -1063,7 +1111,7 @@ class GroupFlowManager(EventMixin):
         if connection is not None:
             connection.send(msg)
             self.port_map[router_dpid][port_no].config &= 127 # Not(of.OFPPC_NO_BLOOM_FWD)
-            log.info('Assigned Bloom ID ' + str(msg.bloom_id) + ' to ' + dpid_to_str(router_dpid) + ':' + str(port_no))
+            # log.info('Assigned Bloom ID ' + str(msg.bloom_id) + ' to ' + dpid_to_str(router_dpid) + ':' + str(port_no))
         else:
             log.warn('Could not get connection for router: ' + dpid_to_str(router_dpid))
                 
@@ -1150,7 +1198,7 @@ class GroupFlowManager(EventMixin):
 
 
 def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT, util_link_weight = UTILIZATION_LINK_WEIGHT, 
-        flow_replacement_mode = 'none', flow_replacement_interval = FLOW_REPLACEMENT_INTERVAL_SECONDS, tree_encoding_mode = TREE_ENCODING_STANDARD):
+        flow_replacement_mode = 'none', flow_replacement_interval = FLOW_REPLACEMENT_INTERVAL_SECONDS, tree_encoding_mode = TREE_ENCODING_STANDARD, num_multi_trees = 1):
     # Method called by the POX core when launching the module
     link_weight_type_enum = LINK_WEIGHT_LINEAR   # Default
     if 'linear' in str(link_weight_type):
@@ -1166,9 +1214,12 @@ def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT,
     
     if 'standard' in str(tree_encoding_mode):
         tree_encoding_mode = TREE_ENCODING_STANDARD
+        if num_multi_trees != 1:
+            num_multi_trees = 1
+            log.info('Multi-trees only supported in bloom filter encoding mode, forcing multi-tree count to 1')
     if 'bloom_filter' in str(tree_encoding_mode):
         tree_encoding_mode = TREE_ENCODING_BLOOM_FILTER
     
     groupflow_manager = GroupFlowManager(link_weight_type_enum, float(static_link_weight), float(util_link_weight), flow_replacement_mode_int,
-        float(flow_replacement_interval), int(tree_encoding_mode))
+        float(flow_replacement_interval), int(tree_encoding_mode), int(num_multi_trees))
     core.register('openflow_groupflow', groupflow_manager)
