@@ -356,86 +356,88 @@ class MulticastPath(object):
         
         # TODO: Following code needs to be fully updated for multi-trees, currently only installs the first
         # calculated tree
-        mtree_index = 0
-        for hop_distance in edges_to_install[mtree_index]:
-            if hop_distance == 0:
-                # First hop is always implemented with explicit output actions, does not require bloom filter calculation
-                continue
-            log.debug('Filter stage: ' + str(hop_distance))
-            
-            # Calculate the set of bloom identifiers which must be included and excluded for this filter stage
-            include_bloom_ids = []
-            for edge in edges_to_install[mtree_index][hop_distance]:
-                #log.warn('Include edge: ' + dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]))
-                include_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[edge[0]][edge[1]])
-            exclude_bloom_ids = []
-            for edge in edges_to_install[mtree_index][hop_distance - 1]:
-                for dpid in self.groupflow_manager.bloom_id_adjacency[edge[1]]:
-                    if dpid == edge[0]:
-                        # Reverse edges of the tree do not need to be considered for exclusion
-                        continue
-                    if self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid] is not None:
-                        if self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid] not in include_bloom_ids:
-                            #log.warn('Exclude edge: ' + dpid_to_str(edge[1]) + ' -> ' + dpid_to_str(dpid))
-                            exclude_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid])
-            
-            filter_len = 0;
-            if len(exclude_bloom_ids) == 0:
-                filter_len = 1
-            else:
-                filter_len = 2
-            
-            num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
-            stage_filter = bloom_filter(filter_len, num_hash_functions)
-            false_positive_free = False
-            while false_positive_free == False and filter_len < MAX_FILTER_LEN_BITS:
-                # Construct the bloom filter
-                for bloom_id in include_bloom_ids:
-                    stage_filter.add_member(bloom_id)
-                # Test the bloom filter for false positives
-                false_positive_free = True
-                for bloom_id in exclude_bloom_ids:
-                    if stage_filter.check_member(bloom_id):
-                        false_positive_free = False
-                        filter_len += 1
-                        num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
-                        stage_filter.clear_and_expand(num_hash_functions)
-                        break
-            
-            if false_positive_free:
-                log.debug('Found false positive free bloom filter:')
-                log.debug(stage_filter.debug_str())
-                if complete_shim_header[mtree_index] is None:
-                    complete_shim_header[mtree_index] = stage_filter.pack_shim_header()
-                else:
-                    complete_shim_header[mtree_index] = complete_shim_header + stage_filter.pack_shim_header()
-            else:
-                log.warn('BLOOM FILTER ERROR: Failed to find false positive free bloom filter with length under ' + str(MAX_FILTER_LEN_BITS) + ' bits.')
-                # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
-                if not groupflow_trace_event is None:
-                    groupflow_trace_event.set_route_processing_end_time()
-                    core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
-                return
+        for mtree_index in range(0, self.num_multi_trees):
+            for hop_distance in edges_to_install[mtree_index]:
+                if hop_distance == 0:
+                    # First hop is always implemented with explicit output actions, does not require bloom filter calculation
+                    continue
+                log.debug('Filter stage: ' + str(hop_distance))
                 
-            log.debug('=====')
+                # Calculate the set of bloom identifiers which must be included and excluded for this filter stage
+                include_bloom_ids = []
+                for edge in edges_to_install[mtree_index][hop_distance]:
+                    #log.warn('Include edge: ' + dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]))
+                    include_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[edge[0]][edge[1]])
+                exclude_bloom_ids = []
+                for edge in edges_to_install[mtree_index][hop_distance - 1]:
+                    for dpid in self.groupflow_manager.bloom_id_adjacency[edge[1]]:
+                        if dpid == edge[0]:
+                            # Reverse edges of the tree do not need to be considered for exclusion
+                            continue
+                        if self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid] is not None:
+                            if self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid] not in include_bloom_ids:
+                                #log.warn('Exclude edge: ' + dpid_to_str(edge[1]) + ' -> ' + dpid_to_str(dpid))
+                                exclude_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[edge[1]][dpid])
+                
+                filter_len = 0;
+                if len(exclude_bloom_ids) == 0:
+                    filter_len = 1
+                else:
+                    filter_len = 2
+                
+                num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
+                stage_filter = bloom_filter(filter_len, num_hash_functions)
+                false_positive_free = False
+                while false_positive_free == False and filter_len < MAX_FILTER_LEN_BITS:
+                    # Construct the bloom filter
+                    for bloom_id in include_bloom_ids:
+                        stage_filter.add_member(bloom_id)
+                    # Test the bloom filter for false positives
+                    false_positive_free = True
+                    for bloom_id in exclude_bloom_ids:
+                        if stage_filter.check_member(bloom_id):
+                            false_positive_free = False
+                            filter_len += 1
+                            num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
+                            stage_filter.clear_and_expand(num_hash_functions)
+                            break
+                
+                if false_positive_free:
+                    log.debug('Found false positive free bloom filter:')
+                    log.debug(stage_filter.debug_str())
+                    if complete_shim_header[mtree_index] is None:
+                        complete_shim_header[mtree_index] = stage_filter.pack_shim_header()
+                    else:
+                        complete_shim_header[mtree_index] = complete_shim_header + stage_filter.pack_shim_header()
+                else:
+                    log.warn('BLOOM FILTER ERROR: Failed to find false positive free bloom filter with length under ' + str(MAX_FILTER_LEN_BITS) + ' bits.')
+                    # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
+                    if not groupflow_trace_event is None:
+                        groupflow_trace_event.set_route_processing_end_time()
+                        core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
+                    return
+                    
+                log.debug('=====')
         
         if not groupflow_trace_event is None:
             groupflow_trace_event.set_bloom_filter_calc_end_time()
         
-        if complete_shim_header[mtree_index] is not None:
-            log.info('Calculated complete shim header - Group: ' + str(self.dst_mcast_address) + ' Filter_Len: ' + str(len(complete_shim_header)))
-            log.info(bitarray_to_str(complete_shim_header[mtree_index]))
-            if len(complete_shim_header[mtree_index]) > 320:
-                log.warn('BLOOM FILTER ERROR: Calculated shim header is greater than 320 bits.')
-                # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
-                if not groupflow_trace_event is None:
-                    groupflow_trace_event.set_route_processing_end_time()
-                    core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
-                return
+        for mtree_index in range(0, self.num_multi_trees):
+            if complete_shim_header[mtree_index] is not None:
+                log.info('Calculated complete shim header - Group: ' + str(self.dst_mcast_address) + ' Filter_Len: ' + str(len(complete_shim_header)))
+                log.info(bitarray_to_str(complete_shim_header[mtree_index]))
+                if len(complete_shim_header[mtree_index]) > 320:
+                    log.warn('BLOOM FILTER ERROR: Calculated shim header is greater than 320 bits.')
+                    # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
+                    if not groupflow_trace_event is None:
+                        groupflow_trace_event.set_route_processing_end_time()
+                        core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
+                    return
         
         if not groupflow_trace_event is None:
             groupflow_trace_event.set_route_processing_end_time()
             groupflow_trace_event.set_flow_installation_start_time()
+        mtree_index = 0
         
         # Now that the shim header has been calculated, install the required OpenFlow rules
         # Dictionary is keyed by the dpid on which the rule will be installed
