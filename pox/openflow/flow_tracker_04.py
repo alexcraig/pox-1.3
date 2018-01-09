@@ -697,7 +697,7 @@ class FlowTracker(EventMixin):
         cur_time = time.time()
         log.info('Network peak link throughput (Mbps): ' + str(peak_usage) + ' Time:' + str(cur_time))
         if num_links > 0:
-            log.info('Network avg link throughput (Mbps): ' + str(total_usage / float(num_links)) + ' Time:' + str(cur_time))
+            log.info('Network avg link throughput (Mbps): ' + str(total_usage / float(num_links)) + ' Time:' + str(cur_time) + ' # Links: ' + str(num_links))
 
     def _handle_ConnectionUp(self, event):
         """Handler for ConnectionUp from the discovery module, which represents a new switch joining the network."""
