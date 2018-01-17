@@ -781,7 +781,7 @@ class IGMPv3Router(EventMixin):
             self.debug_print_group_records()
             self.update_desired_reception_state(igmp_trace_event)
                 
-        elif igmp_pkt.msg_type == MEMBERSHIP_QUERY_V3 and igmp_pkt.self.suppress_router_processing == False \
+        elif igmp_pkt.msg_type == MEMBERSHIP_QUERY_V3 and igmp_pkt.suppress_router_processing == False \
                 and igmp_pkt.address != IPAddr("0.0.0.0"):
             router_group_record = self.group_records[event.port][igmp_pkt.address]
             if router_group_record == None:
