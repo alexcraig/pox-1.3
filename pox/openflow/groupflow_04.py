@@ -118,9 +118,9 @@ CONG_THRESHOLD_FLOW_REPLACEMENT = 2
 # The below constants enable/configure experimental features which have not yet been integrated into the module API
 ENABLE_OUT_OF_ORDER_PACKET_DELIVERY = False
 FIXED_BLOOM_IDS = True
-RANDOM_NUM_IDS_PER_ROUTER = True
-FIXED_BIDS_PER_ROUTER = 50
-RANDOM_BIDS_PER_ROUTER_MIN = 20
+RANDOM_NUM_IDS_PER_ROUTER = False
+FIXED_BIDS_PER_ROUTER = 40
+RANDOM_BIDS_PER_ROUTER_MIN = 30
 RANDOM_BIDS_PER_ROUTER_MAX = 60 
 
 class MulticastPath(object):
@@ -294,6 +294,10 @@ class MulticastPath(object):
     def install_openflow_rules_bloom_filter(self, groupflow_trace_event = None):
         """Selects routes for active receivers from the cached shortest path tree, and installs/removes OpenFlow rules using bloom filter tree encoding."""        
         reception_state = self.groupflow_manager.get_reception_state(self.dst_mcast_address, self.src_ip)
+        num_receivers = 0
+        for receiver in reception_state:
+            num_receivers += 1
+        log.info('Number of Receivers: ' + str(num_receivers))
         log.debug('Reception state for ' + str(self.dst_mcast_address) + ': ' + str(reception_state))
         
         if not groupflow_trace_event is None:
@@ -322,7 +326,7 @@ class MulticastPath(object):
                     continue
                 
                 receiver_path = self.path_tree_map[mtree_index][receiver[0]]
-                log.debug('Receiver path for receiver ' + str(receiver[0]) + ': ' + str(receiver_path))
+                log.info('Receiver path for receiver ' + str(receiver[0]) + ': ' + str(receiver_path))
                 if receiver_path is None:
                     log.warn('Path could not be determined for receiver ' + dpid_to_str(receiver[0]) + ' (network is not fully connected)')
                     continue
@@ -349,10 +353,18 @@ class MulticastPath(object):
             log.debug('Calculated tree ' + str(mtree_index) + ' for ' + str(self.dst_mcast_address) + ':')
             log.debug('Participating nodes by hop distance:')
             for node in node_hop_distance[mtree_index]:
-                log.debug(dpid_to_str(node) + ' - Hop distance: ' + str(node_hop_distance[mtree_index][node]))
+                log.info(dpid_to_str(node) + ' - Hop distance: ' + str(node_hop_distance[mtree_index][node]))
 
         if not groupflow_trace_event is None:
             groupflow_trace_event.set_bloom_filter_calc_start_time()
+        
+        # DEBUG
+        for mtree_index in range(0, self.num_multi_trees):
+            num_interswitch_links = 0
+            for hop_distance in edges_to_install[mtree_index]:
+                num_interswitch_links += len(edges_to_install[mtree_index][hop_distance])
+            log.info('Total # of Inter-Switch Links: ' + str(num_interswitch_links))
+        
         
         # TODO: Following code needs to be fully updated for multi-trees, currently only installs the first
         # calculated tree
@@ -361,12 +373,12 @@ class MulticastPath(object):
                 if hop_distance == 0:
                     # First hop is always implemented with explicit output actions, does not require bloom filter calculation
                     continue
-                log.debug('Filter stage: ' + str(hop_distance))
+                log.info('Filter stage: ' + str(hop_distance))
                 
                 # Calculate the set of bloom identifiers which must be included and excluded for this filter stage
                 include_bloom_ids = []
                 for edge in edges_to_install[mtree_index][hop_distance]:
-                    #log.warn('Include edge: ' + dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]))
+                    log.info('Include edge: ' + dpid_to_str(edge[0]) + ' -> ' + dpid_to_str(edge[1]) + ' (BID: ' + str(self.groupflow_manager.bloom_id_adjacency[edge[0]][edge[1]]) + ')')
                     include_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[edge[0]][edge[1]])
                 exclude_bloom_ids = []
                 for edge in edges_to_install[mtree_index][hop_distance - 1]:
@@ -408,7 +420,8 @@ class MulticastPath(object):
                     if complete_shim_header[mtree_index] is None:
                         complete_shim_header[mtree_index] = stage_filter.pack_shim_header()
                     else:
-                        complete_shim_header[mtree_index] = complete_shim_header + stage_filter.pack_shim_header()
+                        complete_shim_header[mtree_index] = complete_shim_header[mtree_index] + stage_filter.pack_shim_header()
+                    log.info('Calculated stage shim header: ' + bitarray_to_str(stage_filter.pack_shim_header()))
                 else:
                     log.warn('BLOOM FILTER ERROR: Failed to find false positive free bloom filter with length under ' + str(MAX_FILTER_LEN_BITS) + ' bits.')
                     # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
@@ -424,7 +437,7 @@ class MulticastPath(object):
         
         for mtree_index in range(0, self.num_multi_trees):
             if complete_shim_header[mtree_index] is not None:
-                log.info('Calculated complete shim header - Group: ' + str(self.dst_mcast_address) + ' Filter_Len: ' + str(len(complete_shim_header)))
+                log.info('Calculated complete shim header - Group: ' + str(self.dst_mcast_address) + ' Filter_Len: ' + str(len(complete_shim_header[mtree_index])))
                 log.info(bitarray_to_str(complete_shim_header[mtree_index]))
                 if len(complete_shim_header[mtree_index]) > 320:
                     log.warn('BLOOM FILTER ERROR: Calculated shim header is greater than 320 bits.')
@@ -477,7 +490,7 @@ class MulticastPath(object):
             shim_action.shim_len = len(shim_header_bytes)
             msg.actions.append(shim_action) # TODO: ADD THIS BACK LATER
             log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
-            log.info('Actions: ' + str(msg.actions))
+            log.info('Ingress Actions: ' + str(msg.actions))
         
         if edges_to_install[mtree_index][0] is not None:
             for edge in edges_to_install[mtree_index][0]:
@@ -542,6 +555,8 @@ class MulticastPath(object):
                 # stages were already added to the action list when the flow mod was created
                 log.debug('Added output action on ' + dpid_to_str(receiver[0]) + ' Port: ' + str(output_port))
                 flow_mods[receiver[0]].actions.append(of.ofp_action_output(port = output_port))
+                
+            log.info('Receiver ' + dpid_to_str(receiver[0]) + ' Egress Actions: ' + str(flow_mods[receiver[0]].actions))
         
         # Setup empty rules for any router not involved in this path
         for router_dpid in self.node_list:

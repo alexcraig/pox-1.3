@@ -681,6 +681,7 @@ class FlowTracker(EventMixin):
         peak_usage = 0
         total_usage = 0
         num_links = 0
+        num_active_links = 0
         for switch_dpid in self.switches:
             if not self.switches[switch_dpid].is_connected:
                 continue
@@ -689,15 +690,31 @@ class FlowTracker(EventMixin):
                 if port_no == of.OFPP_LOCAL or port_no == of.OFPP_CONTROLLER:
                     continue
                 util = self.get_link_utilization_mbps(switch_dpid, port_no)
+                
                 total_usage += util
                 num_links += 1
                 if util > peak_usage:
                     peak_usage = util
         
+        active_links_str = ''
+        util_links_str = ''
+        for switch_dpid in self.switches:
+            if not self.switches[switch_dpid].is_connected:
+                continue
+
+            for port_no in self.switches[switch_dpid].tracked_ports:
+                if port_no == of.OFPP_LOCAL or port_no == of.OFPP_CONTROLLER:
+                    continue
+                util = self.get_link_utilization_mbps(switch_dpid, port_no)
+                util_links_str += dpid_to_str(switch_dpid) + '->' + str(port_no) + ': ' + str(util) + '\n'
+                if util > (peak_usage / 3):
+                    active_links_str += dpid_to_str(switch_dpid) + '->' + str(port_no) + '  '
+                    num_active_links += 1
+        
         cur_time = time.time()
         log.info('Network peak link throughput (Mbps): ' + str(peak_usage) + ' Time:' + str(cur_time))
         if num_links > 0:
-            log.info('Network avg link throughput (Mbps): ' + str(total_usage / float(num_links)) + ' Time:' + str(cur_time) + ' # Links: ' + str(num_links))
+            log.info('Network avg link throughput (Mbps): ' + str(total_usage / float(num_links)) + ' Time:' + str(cur_time) + ' # Links: ' + str(num_active_links) + '/' + str(num_links) + '\n' + active_links_str) # + '\n' + util_links_str)
 
     def _handle_ConnectionUp(self, event):
         """Handler for ConnectionUp from the discovery module, which represents a new switch joining the network."""
