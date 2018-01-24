@@ -625,7 +625,9 @@ class MulticastPath(object):
             # First, send the group mod messages to install the ALL groups on the ingress router
             for mtree_index in range(0, self.num_multi_trees):
                 ingress_connection.send(group_mtree_msgs[mtree_index])
-            # Next, send the group mod message to install the SELECT group on the ingress router
+            # Next, send a barrier, to ensure the groups exist on the switch side before they are referenced by the SELECT group
+            ingress_connection.send(of.ofp_barrier_request())
+            # Finally, send the group mod message to install the SELECT group on the ingress router
             ingress_connection.send(group_select_msg)
         else:
             log.warn('Could not get connection for router: ' + dpid_to_str(self.src_router_dpid))
@@ -641,7 +643,7 @@ class MulticastPath(object):
                     self.installed_node_list.append(router_dpid)
             else:
                 log.warn('Could not get connection for router: ' + dpid_to_str(router_dpid))
-        
+            
         log.info('New flows installed for Group: ' + str(self.dst_mcast_address) + ' Source: ' + str(self.src_ip) + ' FlowCookie: ' + str(self.flow_cookie))
         
         if not groupflow_trace_event is None:
