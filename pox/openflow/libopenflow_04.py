@@ -1285,7 +1285,7 @@ class ofp_bucket_counter:
 
   def pack (self):
     packed  = b''
-    packed += struct.pack("QQ", 
+    packed += struct.pack("!QQ", 
                           self.packet_count,
                           self.byte_count)
     return packed
@@ -1318,10 +1318,11 @@ class ofp_bucket:
 
   # packing of whole message
   def pack (self):
+    self.len = len(self)
     packed  = b''
-    packed += struct.pack("HHLL4x", 
+    packed += struct.pack("!HHLL4x", 
                           self.len,
-                          self.byte_count,
+                          self.weight,
                           self.watch_port,
                           self.watch_group,)
 
@@ -3246,7 +3247,7 @@ class ofp_action_set_queue (ofp_action_base):
 # ----------------------------------------------------------------------
 # Apply group. 
 @openflow_action('OFPAT_GROUP', 22)
-class ofp_action_set_queue (ofp_action_base):
+class ofp_action_group(ofp_action_base):
   def __init__ (self, **kw):
     self.type = 22
     self.len = 8
@@ -3272,7 +3273,6 @@ class ofp_action_set_queue (ofp_action_base):
     assert offset - _offset == len(self)
     return offset
 
-  @staticmethod
   def __len__ (self):
     return 8
 
@@ -3912,7 +3912,6 @@ class ofp_instruction_actions (ofp_instruction_base):
                                           offset)
     return offset
 
-  #@staticmethod
   def __len__ (self):
     actionlen = 0
 
@@ -4624,12 +4623,12 @@ class ofp_group_mod (ofp_header):
     packed = b""
     packed += ofp_header.pack(self)
     packed += struct.pack("!HBxL", 
-                          self.port_no,
+                          self.command,
                           self.type,
                           self.group_id)
 
-    if self.bucket:
-      for bucket in self.bucket:
+    if self.buckets:
+      for bucket in self.buckets:
         packed += bucket.pack()
     return packed
 
@@ -4651,7 +4650,6 @@ class ofp_group_mod (ofp_header):
     assert offset - _offset == len(self)
     return offset
 
-  @staticmethod
   def __len__ (self):
     return len(ofp_header) + 8 + sum(len(bucket) for bucket in self.buckets)
 
