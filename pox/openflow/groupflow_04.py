@@ -456,102 +456,77 @@ class MulticastPath(object):
         # Now that the shim header has been calculated, install the required OpenFlow rules
         # Dictionary is keyed by the dpid on which the rule will be installed
         flow_mods = defaultdict(lambda : None)
-        '''
-        # Commented Out Section: Flow mod for single multi-tree
+
         
-        # First, install the rule at the root node which applies the shim header (if necessary), and includes
-        # explicit output actions for all initial hops
-        msg = of.ofp_flow_mod()
-        msg.hard_timeout = 0
-        msg.idle_timeout = 0
-        msg.priority += 4
-        if self.src_router_dpid in self.installed_node_list:
-            msg.command = of.OFPFC_MODIFY
-        else:
-            msg.command = of.OFPFC_ADD
-        match = of.ofp_match(dl_type = 0x800, nw_dst = self.dst_mcast_address, nw_src = self.src_ip)
-        msg.match = match
-        msg.cookie = self.flow_cookie
-        flow_mods[self.src_router_dpid] = msg
-        log.debug('Generated flow mod for root node ' + dpid_to_str(self.src_router_dpid))
-        vlan_push_action = of.ofp_action_push_vlan()
-        vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
-        msg.actions.append(vlan_push_action)
-        vlan_set_action = of.ofp_action_set_field()
-        vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
-                oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
-        vlan_set_action.pack()
-        msg.actions.append(vlan_set_action)
-            
-        if complete_shim_header[mtree_index] is not None:
-            # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
-            log.debug('The generated tree contains more than 1 hop, applying shim header')
-            shim_action = of.ofp_action_push_shim_header()
-            shim_header_bytes = complete_shim_header[mtree_index].tobytes()
-            for i in range(0, len(shim_header_bytes)):
-                shim_action.shim[i] = shim_header_bytes[i]
-            shim_action.shim_len = len(shim_header_bytes)
-            msg.actions.append(shim_action) # TODO: ADD THIS BACK LATER
-            log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
-            log.info('Ingress Actions: ' + str(msg.actions))
         
-        if edges_to_install[mtree_index][0] is not None:
-            for edge in edges_to_install[mtree_index][0]:
-                msg.actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
-                log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
-            
-        msg.instructions = []
-        msg.instructions.append(of.ofp_instruction_actions_apply(
-                                actions = msg.actions, 
-                                type = 4, # OFPIT_APPLY_ACTION
-                                ))
-        #log.info("Ingress Flow Mod Instructions: " + str(msg.instructions))
-        '''
-        
-        # First, generate the group mod for the ingress switch. The group will be of SELECT type, and each bucket will
-        # implement the ingress action for one multi-tree
-        group_msg = of.ofp_group_mod()
-        group_msg.command = 0   # OFPGC_ADD
-        group_msg.type = 1      # OFPGT_SELECT
-        group_msg.group_id = self.flow_cookie
-        
-        # One bucket is created for each multi-tree
+        # A group of type ALL must be created for each multi-tree, with a full bucket of actions for each output edge of the root of the tree
+        # TODO: For now, these groups will be given group_ids equal to the (mtree index + 1) (THIS WILL ONLY WORK FOR A SINGLE GROUP)
+        group_mtree_msgs = defaultdict(lambda : None)
         for mtree_index in range(0, self.num_multi_trees):
-            log.info('Generating bucket for mtree ' + str(mtree_index))
+            group_msg = of.ofp_group_mod()
+            group_msg.command = 0 # OFPGC_ADD
+            group_msg.type = 0    # OFPGT_ALL
+            group_msg.group_id = mtree_index + 1
+            
+            group_mtree_msgs[mtree_index] = group_msg
+            
+            # Now, generate the bucket of actions for each output port
+            for edge in edges_to_install[mtree_index][0]:
+                log.info('Generating ALL bucket for mtree ' + str(mtree_index) + ', output_port ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+                
+                mtree_bucket = of.ofp_bucket()
+                mtree_bucket.watch_port = 0xffffffff # OFPP_ANY
+                mtree_bucket.watch_group = 0xffffffff # OFPG_ANY
+                
+                bucket_actions = []
+                vlan_push_action = of.ofp_action_push_vlan()
+                vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
+                bucket_actions.append(vlan_push_action)
+                vlan_set_action = of.ofp_action_set_field()
+                vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
+                        oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
+                vlan_set_action.pack()
+                bucket_actions.append(vlan_set_action)
+                    
+                if complete_shim_header[mtree_index] is not None:
+                    # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
+                    log.debug('The generated tree contains more than 1 hop, applying shim header')
+                    shim_action = of.ofp_action_push_shim_header()
+                    shim_header_bytes = complete_shim_header[mtree_index].tobytes()
+                    for i in range(0, len(shim_header_bytes)):
+                        shim_action.shim[i] = shim_header_bytes[i]
+                    shim_action.shim_len = len(shim_header_bytes)
+                    bucket_actions.append(shim_action)
+                    log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
+                    
+                bucket_actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+                log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
+                
+                log.info('Ingress Actions mtree ' + str(mtree_index) + ', output_port ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]) + ': ' + str(bucket_actions))
+                mtree_bucket.actions = bucket_actions
+                group_mtree_msgs[mtree_index].buckets.append(mtree_bucket)
+        
+        
+        
+        # Next, generate a group of type select, where each select bucket consists of a single action pointing to one of the previously generated groups
+        group_select_msg = of.ofp_group_mod()
+        group_select_msg.command = 0   # OFPGC_ADD
+        group_select_msg.type = 1      # OFPGT_SELECT
+        group_select_msg.group_id = self.flow_cookie
+        
+        for mtree_index in range(0, self.num_multi_trees):
+            log.info('Generating SELECT bucket for mtree ' + str(mtree_index))
             mtree_bucket = of.ofp_bucket()
             mtree_bucket.weight = 10     # For now, all mtrees are given equal weight
             mtree_bucket.watch_port = 0xffffffff # OFPP_ANY
             mtree_bucket.watch_group = 0xffffffff # OFPG_ANY
-            
             bucket_actions = []
-            vlan_push_action = of.ofp_action_push_vlan()
-            vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
-            bucket_actions.append(vlan_push_action)
-            vlan_set_action = of.ofp_action_set_field()
-            vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
-                    oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
-            vlan_set_action.pack()
-            bucket_actions.append(vlan_set_action)
-                
-            if complete_shim_header[mtree_index] is not None:
-                # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
-                log.debug('The generated tree contains more than 1 hop, applying shim header')
-                shim_action = of.ofp_action_push_shim_header()
-                shim_header_bytes = complete_shim_header[mtree_index].tobytes()
-                for i in range(0, len(shim_header_bytes)):
-                    shim_action.shim[i] = shim_header_bytes[i]
-                shim_action.shim_len = len(shim_header_bytes)
-                bucket_actions.append(shim_action)
-                log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
-            
-            if edges_to_install[mtree_index][0] is not None:
-                for edge in edges_to_install[mtree_index][0]:
-                    bucket_actions.append(of.ofp_action_output(port = self.groupflow_manager.adjacency[edge[0]][edge[1]]))
-                    log.debug('Added output action on ' + dpid_to_str(self.src_router_dpid) + ' Port: ' + str(self.groupflow_manager.adjacency[edge[0]][edge[1]]))
-            
-            log.info('Ingress Actions: ' + str(bucket_actions))
+            group_action = of.ofp_action_group()
+            group_action.group_id = (mtree_index + 1)
+            bucket_actions.append(group_action)
             mtree_bucket.actions = bucket_actions
-            group_msg.buckets.append(mtree_bucket)
+            group_select_msg.buckets.append(mtree_bucket)
+            
         
         # Next, generate a flow mod for the ingress switch that directs packets to the previously generated group
         msg = of.ofp_flow_mod()
@@ -577,8 +552,6 @@ class MulticastPath(object):
                                 type = 4, # OFPIT_APPLY_ACTION
                                 ))
         log.info("Ingress Flow Mod Instructions: " + str(msg.instructions))
-        
-        
         
         # Now, loop through all receivers, and generate group specific forwarding entries as necessary
         for receiver in reception_state:
@@ -646,11 +619,14 @@ class MulticastPath(object):
                 flow_mods[router_dpid] = msg
                 log.debug('Removing installed flow on ' + dpid_to_str(router_dpid))
         
-        
-        # First, send the group mod message to the ingress router
+
         ingress_connection = core.openflow.getConnection(self.src_router_dpid)
         if ingress_connection is not None:
-            ingress_connection.send(group_msg)
+            # First, send the group mod messages to install the ALL groups on the ingress router
+            for mtree_index in range(0, self.num_multi_trees):
+                ingress_connection.send(group_mtree_msgs[mtree_index])
+            # Next, send the group mod message to install the SELECT group on the ingress router
+            ingress_connection.send(group_select_msg)
         else:
             log.warn('Could not get connection for router: ' + dpid_to_str(self.src_router_dpid))
         
