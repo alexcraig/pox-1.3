@@ -526,12 +526,12 @@ class MulticastPath(object):
             bucket_actions = []
             vlan_push_action = of.ofp_action_push_vlan()
             vlan_push_action.ethertype = BLOOMFLOW_RESERVED_VLAN_ETHERTYPE
-            #bucket_actions.append(vlan_push_action)
+            bucket_actions.append(vlan_push_action)
             vlan_set_action = of.ofp_action_set_field()
             vlan_set_action.oxm_field = of.oxm_match_field(oxm_field = of.oxm_ofb_match_fields_rev_map['OFPXMT_OFB_VLAN_VID'],
                     oxm_length = 2, data = struct.pack('!H', BLOOMFLOW_RESERVED_VLAN_ID | 0x1000), value = str(BLOOMFLOW_RESERVED_VLAN_ID | 0x1000),)
             vlan_set_action.pack()
-            #bucket_actions.append(vlan_set_action)
+            bucket_actions.append(vlan_set_action)
                 
             if complete_shim_header[mtree_index] is not None:
                 # A tree exists with more than 1 hop, apply the VLAN ID and shim header at the root node
@@ -541,7 +541,7 @@ class MulticastPath(object):
                 for i in range(0, len(shim_header_bytes)):
                     shim_action.shim[i] = shim_header_bytes[i]
                 shim_action.shim_len = len(shim_header_bytes)
-                # bucket_actions.append(shim_action)
+                bucket_actions.append(shim_action)
                 log.info('Added shim header and VLAN tag actions on ' + dpid_to_str(self.src_router_dpid))
             
             if edges_to_install[mtree_index][0] is not None:
