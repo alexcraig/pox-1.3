@@ -708,7 +708,7 @@ class FlowTracker(EventMixin):
                 util = self.get_link_utilization_mbps(switch_dpid, port_no)
                 util_links_str += dpid_to_str(switch_dpid) + '->' + str(port_no) + ': ' + str(util) + '\n'
                 if util > (peak_usage / 3):
-                    active_links_str += dpid_to_str(switch_dpid) + '->' + str(port_no) + '  '
+                    active_links_str += dpid_to_str(switch_dpid) + '->' + str(port_no) + '(' + str(util) + ') '
                     num_active_links += 1
         
         cur_time = time.time()
