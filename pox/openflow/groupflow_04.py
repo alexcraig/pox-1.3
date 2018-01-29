@@ -563,14 +563,14 @@ class MulticastPath(object):
                 
                 # Generate the actions required to strip the VLAN ID and remaining filter stages at this
                 # receiver node. Note that 1 filter stage is removed by the bloom filter forwarding operation
-                if node_hop_distance[mtree_index][receiver[0]] < len(edges_to_install[mtree_index]):
-                    log.debug('Added bloom filter forwarding action on ' + dpid_to_str(receiver[0]))
-                    msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
+                # if node_hop_distance[mtree_index][receiver[0]] < len(edges_to_install[mtree_index]):
+                log.debug('Added bloom filter forwarding action on ' + dpid_to_str(receiver[0]))
+                msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
                     
                 stages_to_remove = len(edges_to_install[mtree_index]) - node_hop_distance[mtree_index][receiver[0]]
-                if stages_to_remove > 0:
-                    log.debug('Added pop stage header action on ' + dpid_to_str(receiver[0]) + ', stages to remove: ' + str(stages_to_remove))
-                    msg.actions.append(of.ofp_action_pop_shim_header(num_remove_stages = stages_to_remove))
+                #if stages_to_remove > 0:
+                log.debug('Added pop stage header action on ' + dpid_to_str(receiver[0]) + ', stages to remove: ' + str(stages_to_remove))
+                msg.actions.append(of.ofp_action_pop_shim_header(num_remove_stages = stages_to_remove))
                     
                 log.debug('Added VLAN stripping action on ' + dpid_to_str(receiver[0]))
                 vlan_action = of.ofp_action_pop_vlan()
