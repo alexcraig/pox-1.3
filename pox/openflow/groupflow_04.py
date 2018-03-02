@@ -65,9 +65,11 @@ from collections import defaultdict
 from sets import Set
 from heapq import heappop, heappush
 import math
+import mpmath
 import time
 from bitarray import bitarray
 from random import randint
+import numpy as np
 
 # POX dependencies
 from pox.openflow.discovery_04 import Discovery
@@ -85,6 +87,7 @@ from pox.lib.recoco import Timer
 from pox.lib.bloomflow_shim import bloom_filter, encode_elias_gamma, decode_elias_gamma, bitarray_to_str
 from pox.openflow.igmp_manager_04 import MulticastTopoEvent
 import sys
+import itertools
 
 log = core.getLogger()
 
@@ -98,6 +101,14 @@ UTILIZATION_LINK_WEIGHT = 10   # Scaling factor for link weight which is determi
 # Constants used to determine which tree encoding scheme is used
 TREE_ENCODING_STANDARD = 0
 TREE_ENCODING_BLOOM_FILTER = 1
+
+# Constants used to determine which method of filter length iteration is used
+FILTER_LEN_ITER_MINIMUM_LENGTH = 0
+FILTER_LEN_ITER_EXPECTED_ALTERNATING = 1
+FILTER_LEN_ITER_EXPECTED_LOW_FIRST = 2
+FILTER_LEN_ITER_EXPECTED_HIGH_FIRST = 3
+
+FILTER_LEN_ITER_DEFAULT = FILTER_LEN_ITER_MINIMUM_LENGTH
 
 # Constant which determines the maximum filter length to be considered in any individual bloom filter stage
 MAX_FILTER_LEN_BITS = 200
@@ -122,6 +133,44 @@ RANDOM_NUM_IDS_PER_ROUTER = False
 FIXED_BIDS_PER_ROUTER = 40
 RANDOM_BIDS_PER_ROUTER_MIN = 30
 RANDOM_BIDS_PER_ROUTER_MAX = 60 
+
+# Utility Functions
+def expi_inverse(x, tolerance = 0.0000001):
+    # Calculates the exponential inverse function
+    # See http://math.stackexchange.com/questions/853178/numerical-inverse-of-logarithmic-integral/853192#853192
+    u = [];
+    u.append(0.5);
+    inverse_in_tolerance = False
+    cur_u_index = 0
+    
+    while not inverse_in_tolerance:
+        cur_u_index = cur_u_index + 1
+        zn = u[cur_u_index - 1]
+        delta_n = float(mpmath.li(zn)) - x
+        u.append(zn - (delta_n * np.log(zn) * ((1 + (delta_n / (2*zn)))**(-1))))
+        
+        if abs(u[cur_u_index] - u[cur_u_index - 1]) < tolerance:
+            inverse_in_tolerance = True
+        
+        if cur_u_index > 10:
+            break
+
+    return np.log(u[cur_u_index])
+    
+def expected_filter_len(alpha, beta, expi_inverse_tolerance = 0.0000001):
+    # Calculates the expected false-positive-free bloom filter length, given
+    # the number of set elements to include (alpha) and the number of set
+    # elements to exclude (beta)
+    if alpha == 0 or beta == 0:
+        exp_fpf_len = 1
+    else:
+        t = expi_inverse(-(np.log(2)**3) / alpha, 0.0000001)
+        exp_fpf_len = int((alpha * np.log( (-beta) / t)) / (np.log(2)**2))
+        if exp_fpf_len < 1:
+            exp_fpf_len = 1
+    # log.info('exp_fpf_len, alpha = ' + str(alpha) + ', beta = ' + str(beta) + ', len = ' + str(exp_fpf_len))
+    return exp_fpf_len
+    
 
 class MulticastPath(object):
     """Manages multicast route calculation and installation for a single pair of multicast group and multicast sender."""
@@ -369,6 +418,7 @@ class MulticastPath(object):
         
         # TODO: Following code needs to be fully updated for multi-trees, currently only installs the first
         # calculated tree
+        num_tested_lens_aggregated = []
         for mtree_index in range(0, self.num_multi_trees):
             for hop_distance in edges_to_install[mtree_index]:
                 #if hop_distance == 0:
@@ -402,30 +452,55 @@ class MulticastPath(object):
                                 if self.groupflow_manager.bloom_id_adjacency[self.src_router_dpid][dpid] not in include_bloom_ids:
                                     #log.warn('Exclude edge: ' + dpid_to_str(edge[1]) + ' -> ' + dpid_to_str(dpid))
                                     exclude_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[self.src_router_dpid][dpid])
-                
-                filter_len = 0;
+
+                min_filter_len = 2
                 if len(exclude_bloom_ids) == 0:
-                    filter_len = 1
-                else:
-                    filter_len = 2
+                    min_filter_len = 1
                 
-                num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
-                stage_filter = bloom_filter(filter_len, num_hash_functions)
+                # Build the range of values which will be tested for filter membership
+                filter_len_test_range = []
+                if self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_MINIMUM_LENGTH:
+                    filter_len_test_range = range(min_filter_len, MAX_FILTER_LEN_BITS + 1)
+                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_LOW_FIRST:
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    filter_len_test_range = range(expected_fpf_len, min_filter_len - 1, -1)
+                    filter_len_test_range = filter_len_test_range + range(expected_fpf_len + 1, MAX_FILTER_LEN_BITS + 1)
+                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    filter_len_test_range = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
+                    filter_len_test_range = filter_len_test_range + range(expected_fpf_len - 1, min_filter_len - 1, -1)
+                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_ALTERNATING:
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    low_list = range(expected_fpf_len - 1, min_filter_len - 1, -1)
+                    high_list = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
+                    filter_len_test_range = [x for x in itertools.chain.from_iterable(itertools.izip_longest(high_list, low_list)) if x]
+                
+                # log.info('filter_len_test_range = ' + str(filter_len_test_range))
+                
+                num_tested_lens = 0
+                stage_filter = bloom_filter(1, 1)
                 false_positive_free = False
-                while false_positive_free == False and filter_len < MAX_FILTER_LEN_BITS:
+                for filter_len in filter_len_test_range:
+                    num_tested_lens += 1
+                    num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
+                    stage_filter.clear_and_resize(filter_len, num_hash_functions)
+                    
                     # Construct the bloom filter
                     for bloom_id in include_bloom_ids:
                         stage_filter.add_member(bloom_id)
-                    # Test the bloom filter for false positives
+                        
+                    # Test the filter for false positives
                     false_positive_free = True
                     for bloom_id in exclude_bloom_ids:
                         if stage_filter.check_member(bloom_id):
                             false_positive_free = False
-                            filter_len += 1
-                            num_hash_functions = math.ceil(math.log(2.0) * (float(filter_len) / float(len(include_bloom_ids))))
-                            stage_filter.clear_and_expand(num_hash_functions)
                             break
+                    
+                    if false_positive_free:
+                        break
                 
+                num_tested_lens_aggregated.append(num_tested_lens)
+                log.info('num_tested_lens = ' + str(num_tested_lens))
                 if false_positive_free:
                     log.debug('Found false positive free bloom filter:')
                     log.debug(stage_filter.debug_str())
@@ -446,6 +521,9 @@ class MulticastPath(object):
         
         if not groupflow_trace_event is None:
             groupflow_trace_event.set_bloom_filter_calc_end_time()
+        
+        log.info('num_tested_lens = ' + str(num_tested_lens_aggregated))
+        log.info('sum_num_tested_lens = ' + str(sum(num_tested_lens_aggregated)))
         
         for mtree_index in range(0, self.num_multi_trees):
             if complete_shim_header[mtree_index] is not None:
@@ -801,7 +879,7 @@ class GroupFlowManager(EventMixin):
     """The GroupFlowManager implements multicast routing for OpenFlow networks."""
     _core_name = "openflow_groupflow"
     
-    def __init__(self, link_weight_type, static_link_weight, util_link_weight, flow_replacement_mode, flow_replacement_interval, tree_encoding_mode, num_multi_trees):
+    def __init__(self, link_weight_type, static_link_weight, util_link_weight, flow_replacement_mode, flow_replacement_interval, tree_encoding_mode, filter_len_iter, num_multi_trees):
         # Listen to dependencies
         def startup():
             core.openflow.addListeners(self, priority = 99)
@@ -819,6 +897,16 @@ class GroupFlowManager(EventMixin):
         self.flow_replacement_mode = flow_replacement_mode
         self.flow_replacement_interval = flow_replacement_interval
         log.info('Set FlowReplacementMode:' + str(flow_replacement_mode) + ' FlowReplacementInterval:' + str(flow_replacement_interval) + ' seconds')
+        
+        self.filter_len_iter = filter_len_iter
+        if filter_len_iter == FILTER_LEN_ITER_MINIMUM_LENGTH:
+            log.info('Set FilterLengthIterationMethod: MINIMUM LENGTH')
+        elif filter_len_iter == FILTER_LEN_ITER_EXPECTED_ALTERNATING:
+            log.info('Set FilterLengthIterationMethod: EXPECTED ALTERNATING')
+        elif filter_len_iter == FILTER_LEN_ITER_EXPECTED_LOW_FIRST:
+            log.info('Set FilterLengthIterationMethod: EXPECTED LOW FIRST')
+        elif filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
+            log.info('Set FilterLengthIterationMethod: EXPECTED HIGH FIRST')
         
         self.adjacency = defaultdict(lambda : defaultdict(lambda : None))
         self.topology_graph = []
@@ -1284,7 +1372,8 @@ class GroupFlowManager(EventMixin):
 
 
 def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT, util_link_weight = UTILIZATION_LINK_WEIGHT, 
-        flow_replacement_mode = 'none', flow_replacement_interval = FLOW_REPLACEMENT_INTERVAL_SECONDS, tree_encoding_mode = TREE_ENCODING_STANDARD, num_multi_trees = 1):
+        flow_replacement_mode = 'none', flow_replacement_interval = FLOW_REPLACEMENT_INTERVAL_SECONDS, 
+        tree_encoding_mode = TREE_ENCODING_STANDARD, filter_len_iter = FILTER_LEN_ITER_DEFAULT, num_multi_trees = 1):
     # Method called by the POX core when launching the module
     link_weight_type_enum = LINK_WEIGHT_LINEAR   # Default
     if 'linear' in str(link_weight_type):
@@ -1305,7 +1394,18 @@ def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT,
             log.info('Multi-trees only supported in bloom filter encoding mode, forcing multi-tree count to 1')
     if 'bloom_filter' in str(tree_encoding_mode):
         tree_encoding_mode = TREE_ENCODING_BLOOM_FILTER
-    
+        
+    if 'minimum_length' in str(filter_len_iter):
+        filter_len_iter = FILTER_LEN_ITER_MINIMUM_LENGTH
+    elif 'expected_alternating' in str(filter_len_iter):
+        filter_len_iter = FILTER_LEN_ITER_EXPECTED_ALTERNATING
+    elif 'expected_low_first' in str(filter_len_iter):
+        filter_len_iter = FILTER_LEN_ITER_EXPECTED_LOW_FIRST
+    elif 'expected_high_first' in str(filter_len_iter):
+        filter_len_iter = FILTER_LEN_ITER_EXPECTED_HIGH_FIRST
+    else:
+        filter_len_iter = FILTER_LEN_ITER_DEFAULT
+        
     groupflow_manager = GroupFlowManager(link_weight_type_enum, float(static_link_weight), float(util_link_weight), flow_replacement_mode_int,
-        float(flow_replacement_interval), int(tree_encoding_mode), int(num_multi_trees))
+        float(flow_replacement_interval), int(tree_encoding_mode), int(filter_len_iter), int(num_multi_trees))
     core.register('openflow_groupflow', groupflow_manager)

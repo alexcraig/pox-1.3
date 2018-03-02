@@ -35,6 +35,7 @@ import math
 UINT32_ROLLOVER = 2**32
 murmurhash2_hasher = pyhash.murmur2_neutral_32()
 lookup3_hasher = pyhash.lookup3_little()
+MAX_NUM_BITS = 320
 
 def bitarray_to_str(bit_array):
     """Returns the binary string representation of the passed bit array."""
@@ -83,8 +84,8 @@ class bloom_filter:
         """Initializes the bloom filter, allocating a bitarray with the specified number of bits."""
         self.num_bits = int(num_bits)
         self.num_hash_functions = int(num_hash_functions)
-        self.filter_bits = bitarray(self.num_bits, endian='big')
-        self.filter_bits.setall(False)
+        self.filter_bits = bitarray(MAX_NUM_BITS, endian='big')
+        self.filter_bits[0:self.num_bits] = 0
     
     def check_member(self, int_key):
         """Returns True if the specified integer key has been added to the hash function, or if abs
@@ -99,19 +100,18 @@ class bloom_filter:
         """Adds the specified integer key to the bloom filter."""
         for hash_index in range(0, self.num_hash_functions):
             self.filter_bits[self.__generate_hashcode(int_key, hash_index)] = True
-    
-    def clear_and_expand(self, num_hash_functions):
-        """Clears the bloom filter, and expands it by 1 bit. The number of hash functions is also set to the provided value."""
-        self.filter_bits.setall(False)
-        self.filter_bits.append(False)
-        self.num_bits += 1
+        
+    def clear_and_resize(self, new_num_bits, num_hash_functions):
+        """Clears the bloom filter, resizes it to the specified number of bits. The number of hash functions is also set to the provided value."""
+        self.num_bits = int(new_num_bits)
+        self.filter_bits[0:self.num_bits] = 0
         self.num_hash_functions = int(num_hash_functions)
     
     def pack_shim_header(self):
         """Returns a bitarray encoding the bloom filter in the BloomFlow shim header format."""
         shim_bit_array = encode_elias_gamma(self.num_bits)
         shim_bit_array.extend(encode_elias_gamma(self.num_hash_functions))
-        shim_bit_array.extend(self.filter_bits)
+        shim_bit_array.extend(self.filter_bits[0:self.num_bits])
         return shim_bit_array
     
     def __generate_hashcode(self, int_key, hash_index):
@@ -124,5 +124,5 @@ class bloom_filter:
     def debug_str(self):
         """Returns a string including the binary string representation of the hash filter (for debugging only)."""
         return_str = 'BloomFilter - NumBits: ' + str(self.num_bits) + ', NumHashFunctions: ' + str(self.num_hash_functions) + '\n'
-        return_str += bitarray_to_str(self.filter_bits)
+        return_str += bitarray_to_str(self.filter_bits[0:self.num_bits])
         return return_str
