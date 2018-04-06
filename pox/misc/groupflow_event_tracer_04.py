@@ -186,6 +186,7 @@ class GroupFlowTraceEvent(TraceEvent):
         
         self.bloom_filter_calc_start_time = None
         self.bloom_filter_calc_end_time = None
+        self.bloom_filter_summed_calc_time = 0
         self._complete_bloom_filter_calc = False
 
         self.flow_installation_start_time = None
@@ -224,6 +225,7 @@ class GroupFlowTraceEvent(TraceEvent):
     def set_bloom_filter_calc_end_time(self):
         """Records the current time as the time at which bloom filter calculation was completed."""
         self.bloom_filter_calc_end_time = self.get_curr_time()
+        self.bloom_filter_summed_calc_time += (self.bloom_filter_calc_end_time - self.bloom_filter_calc_start_time)
         self._complete_bloom_filter_calc = True
         
     def set_flow_installation_start_time(self):
@@ -285,8 +287,10 @@ class GroupFlowTraceEvent(TraceEvent):
             return_string += 'Route processing time: ' + '{:10.8f}'.format(
                 self.get_route_processing_time() * 1000) + ' ms\n'
         if self._complete_bloom_filter_calc:
+            #return_string += 'Bloom filter calc time: ' + '{:10.8f}'.format(
+            #    self.get_bloom_filter_calc_time() * 1000) + ' ms\n'
             return_string += 'Bloom filter calc time: ' + '{:10.8f}'.format(
-                self.get_bloom_filter_calc_time() * 1000) + ' ms\n'
+                self.bloom_filter_summed_calc_time * 1000) + ' ms\n'
         if self._complete_flow_installation:
             return_string += 'Flow installation time: ' + '{:10.8f}'.format(
                 self.get_flow_installation_time() * 1000) + ' ms\n'
