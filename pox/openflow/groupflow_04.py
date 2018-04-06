@@ -88,7 +88,6 @@ from pox.lib.bloomflow_shim import bloom_filter, encode_elias_gamma, decode_elia
 from pox.openflow.igmp_manager_04 import MulticastTopoEvent
 import sys
 import itertools
-import csv
 
 log = core.getLogger()
 
@@ -109,7 +108,7 @@ FILTER_LEN_ITER_EXPECTED_ALTERNATING = 1
 FILTER_LEN_ITER_EXPECTED_LOW_FIRST = 2
 FILTER_LEN_ITER_EXPECTED_HIGH_FIRST = 3
 
-FILTER_LEN_ITER_DEFAULT = FILTER_LEN_ITER_EXPECTED_HIGH_FIRST
+FILTER_LEN_ITER_DEFAULT = FILTER_LEN_ITER_MINIMUM_LENGTH
 
 # Constant which determines the maximum filter length to be considered in any individual bloom filter stage
 MAX_FILTER_LEN_BITS = 200
@@ -126,16 +125,12 @@ NO_FLOW_REPLACEMENT = 0
 PERIODIC_FLOW_REPLACEMENT = 1
 CONG_THRESHOLD_FLOW_REPLACEMENT = 2
 
-# Constants used for expected filter length import from CSV
-EXP_FILTER_LEN_CSV_FILE = "exp_filter_len.csv"
-EXP_FILTER_LEN_CSV_MAX_LINKS = 300
-
 # Developer constants
 # The below constants enable/configure experimental features which have not yet been integrated into the module API
 ENABLE_OUT_OF_ORDER_PACKET_DELIVERY = False
 FIXED_BLOOM_IDS = True
 RANDOM_NUM_IDS_PER_ROUTER = False
-FIXED_BIDS_PER_ROUTER = 20
+FIXED_BIDS_PER_ROUTER = 40
 RANDOM_BIDS_PER_ROUTER_MIN = 30
 RANDOM_BIDS_PER_ROUTER_MAX = 60 
 
@@ -162,7 +157,7 @@ def expi_inverse(x, tolerance = 0.0000001):
 
     return np.log(u[cur_u_index])
     
-def expected_filter_len_calc(alpha, beta, expi_inverse_tolerance = 0.0000001):
+def expected_filter_len(alpha, beta, expi_inverse_tolerance = 0.0000001):
     # Calculates the expected false-positive-free bloom filter length, given
     # the number of set elements to include (alpha) and the number of set
     # elements to exclude (beta)
@@ -409,6 +404,9 @@ class MulticastPath(object):
             log.debug('Participating nodes by hop distance:')
             for node in node_hop_distance[mtree_index]:
                 log.info(dpid_to_str(node) + ' - Hop distance: ' + str(node_hop_distance[mtree_index][node]))
+
+        if not groupflow_trace_event is None:
+            groupflow_trace_event.set_bloom_filter_calc_start_time()
         
         # DEBUG
         for mtree_index in range(0, self.num_multi_trees):
@@ -427,8 +425,6 @@ class MulticastPath(object):
                     # First hop is always implemented with explicit output actions, does not require bloom filter calculation
                 #    continue
                 log.info('Filter stage: ' + str(hop_distance))
-                if not groupflow_trace_event is None:
-                    groupflow_trace_event.set_bloom_filter_calc_start_time()
                 
                 # Calculate the set of bloom identifiers which must be included and excluded for this filter stage
                 include_bloom_ids = []
@@ -466,22 +462,20 @@ class MulticastPath(object):
                 if self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_MINIMUM_LENGTH:
                     filter_len_test_range = range(min_filter_len, MAX_FILTER_LEN_BITS + 1)
                 elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_LOW_FIRST:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
                     filter_len_test_range = range(expected_fpf_len, min_filter_len - 1, -1)
                     filter_len_test_range = filter_len_test_range + range(expected_fpf_len + 1, MAX_FILTER_LEN_BITS + 1)
                 elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
                     filter_len_test_range = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
                     filter_len_test_range = filter_len_test_range + range(expected_fpf_len - 1, min_filter_len - 1, -1)
                 elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_ALTERNATING:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                    expected_fpf_len = expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
                     low_list = range(expected_fpf_len - 1, min_filter_len - 1, -1)
                     high_list = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
                     filter_len_test_range = [x for x in itertools.chain.from_iterable(itertools.izip_longest(high_list, low_list)) if x]
                 
                 # log.info('filter_len_test_range = ' + str(filter_len_test_range))
-                #if not groupflow_trace_event is None:
-                #    groupflow_trace_event.set_bloom_filter_calc_start_time()
                 
                 num_tested_lens = 0
                 stage_filter = bloom_filter(1, 1)
@@ -504,9 +498,6 @@ class MulticastPath(object):
                     
                     if false_positive_free:
                         break
-                        
-                if not groupflow_trace_event is None:
-                    groupflow_trace_event.set_bloom_filter_calc_end_time()
                 
                 num_tested_lens_aggregated.append(num_tested_lens)
                 log.info('num_tested_lens = ' + str(num_tested_lens))
@@ -527,6 +518,9 @@ class MulticastPath(object):
                     return
                     
                 log.debug('=====')
+        
+        if not groupflow_trace_event is None:
+            groupflow_trace_event.set_bloom_filter_calc_end_time()
         
         log.info('num_tested_lens = ' + str(num_tested_lens_aggregated))
         log.info('sum_num_tested_lens = ' + str(sum(num_tested_lens_aggregated)))
@@ -920,11 +914,6 @@ class GroupFlowManager(EventMixin):
         self.multicast_paths = defaultdict(lambda : defaultdict(lambda : None))
         self.multicast_paths_by_flow_cookie = {} # Stores references to the same objects as self.multicast_paths, except this map is keyed by flow_cookie
         self._next_mcast_group_cookie = 54345;  # Arbitrary, not set to 1 to avoid conflicts with other modules
-        
-        # Load expected filter length array from CSV
-        self.expected_filter_len_array = []
-        with open("exp_filter_len.csv", "r") as f:
-            self.expected_filter_len_array = [list(map(int,value)) for value in csv.reader(f, delimiter=',')]
         
         self.bloom_ids_per_router = FIXED_BIDS_PER_ROUTER
         if RANDOM_NUM_IDS_PER_ROUTER:
@@ -1380,11 +1369,6 @@ class GroupFlowManager(EventMixin):
             msg.actions.append(of.ofp_action_output(port = of.OFPP_BLOOM_PORTS))
             event.connection.send(msg)
             log.info('Installed bloom filter forwarding rule on ' + dpid_to_str(event.dpid))
-    
-    def expected_filter_len(self, alpha, beta):
-        # Fetches the expected filter length for a given alpha/beta from
-        # a previously calculated array loaded from CSV
-        return self.expected_filter_len_array[alpha][beta]
 
 
 def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT, util_link_weight = UTILIZATION_LINK_WEIGHT, 
