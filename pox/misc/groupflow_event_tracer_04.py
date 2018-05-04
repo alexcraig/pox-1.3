@@ -192,6 +192,9 @@ class GroupFlowTraceEvent(TraceEvent):
         self.flow_installation_start_time = None
         self.flow_installation_end_time = None
         self._complete_flow_installation = False
+        
+        self.hash_and_set_ops = []
+        self.hash_and_check_ops = []
 
         self.multicast_group = None
         self.src_ip = None
@@ -276,6 +279,12 @@ class GroupFlowTraceEvent(TraceEvent):
             return None
 
         return self.flow_installation_end_time - self.flow_installation_start_time
+        
+    def add_hash_and_check_ops(self, num_ops):
+        self.hash_and_check_ops.append(num_ops)
+    
+    def add_hash_and_set_ops(self, num_ops):
+        self.hash_and_set_ops.append(num_ops)
 
     def get_log_str(self):
         """Returns a plain-text representation of the event that will be used when the event is serialized to a log file."""
@@ -294,6 +303,10 @@ class GroupFlowTraceEvent(TraceEvent):
         if self._complete_flow_installation:
             return_string += 'Flow installation time: ' + '{:10.8f}'.format(
                 self.get_flow_installation_time() * 1000) + ' ms\n'
+        
+        return_string += 'Hash and check ops: ' + str(int(sum(self.hash_and_check_ops))) + '\n'
+        return_string += 'Hash and set ops: ' + str(int(sum(self.hash_and_set_ops))) + '\n'
+        return_string += 'Hash and set/check ops: ' + str(int(sum(self.hash_and_set_ops) + sum(self.hash_and_check_ops))) + '\n'
 
         if not self.igmp_trace_event is None:
             return_string += 'Triggered by event:\n'

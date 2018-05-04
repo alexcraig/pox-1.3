@@ -418,8 +418,9 @@ class MulticastPath(object):
             log.info('Total # of Inter-Switch Links MTree #' + str(mtree_index) + ': ' + str(num_interswitch_links))
         
         
-        # TODO: Following code needs to be fully updated for multi-trees, currently only installs the first
-        # calculated tree
+        num_hash_and_check_ops = 0
+        num_hash_and_set_ops = 0
+        
         num_tested_lens_aggregated = []
         for mtree_index in range(0, self.num_multi_trees):
             for hop_distance in edges_to_install[mtree_index]:
@@ -428,6 +429,8 @@ class MulticastPath(object):
                 #    continue
                 log.info('Filter stage: ' + str(hop_distance))
                 if not groupflow_trace_event is None:
+                    num_hash_and_check_ops = 0
+                    num_hash_and_set_ops = 0
                     groupflow_trace_event.set_bloom_filter_calc_start_time()
                 
                 # Calculate the set of bloom identifiers which must be included and excluded for this filter stage
@@ -494,10 +497,12 @@ class MulticastPath(object):
                     # Construct the bloom filter
                     for bloom_id in include_bloom_ids:
                         stage_filter.add_member(bloom_id)
+                        num_hash_and_set_ops += num_hash_functions
                         
                     # Test the filter for false positives
                     false_positive_free = True
                     for bloom_id in exclude_bloom_ids:
+                        num_hash_and_check_ops += num_hash_functions
                         if stage_filter.check_member(bloom_id):
                             false_positive_free = False
                             break
@@ -507,6 +512,9 @@ class MulticastPath(object):
                         
                 if not groupflow_trace_event is None:
                     groupflow_trace_event.set_bloom_filter_calc_end_time()
+                    groupflow_trace_event.add_hash_and_set_ops(num_hash_and_set_ops)
+                    groupflow_trace_event.add_hash_and_check_ops(num_hash_and_check_ops)
+                    
                 
                 num_tested_lens_aggregated.append(num_tested_lens)
                 log.info('num_tested_lens = ' + str(num_tested_lens))
