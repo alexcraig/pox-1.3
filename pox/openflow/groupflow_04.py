@@ -112,6 +112,7 @@ FILTER_LEN_ITER_EXPECTED_HIGH_FIRST = 3
 FILTER_LEN_ITER_DEFAULT = FILTER_LEN_ITER_EXPECTED_HIGH_FIRST
 
 # Constant which determines the maximum filter length to be considered in any individual bloom filter stage
+MIN_FILTER_LEN_BITS = 1
 MAX_FILTER_LEN_BITS = 200
 
 # Constant which determines the VLAN ID reserved for bloom filter matching
@@ -459,28 +460,10 @@ class MulticastPath(object):
                                 if self.groupflow_manager.bloom_id_adjacency[self.src_router_dpid][dpid] not in include_bloom_ids:
                                     #log.warn('Exclude edge: ' + dpid_to_str(edge[1]) + ' -> ' + dpid_to_str(dpid))
                                     exclude_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[self.src_router_dpid][dpid])
-
-                min_filter_len = 2
-                if len(exclude_bloom_ids) == 0:
-                    min_filter_len = 1
                 
                 # Build the range of values which will be tested for filter membership
-                filter_len_test_range = []
-                if self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_MINIMUM_LENGTH:
-                    filter_len_test_range = range(min_filter_len, MAX_FILTER_LEN_BITS + 1)
-                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_LOW_FIRST:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
-                    filter_len_test_range = range(expected_fpf_len, min_filter_len - 1, -1)
-                    filter_len_test_range = filter_len_test_range + range(expected_fpf_len + 1, MAX_FILTER_LEN_BITS + 1)
-                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
-                    filter_len_test_range = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
-                    filter_len_test_range = filter_len_test_range + range(expected_fpf_len - 1, min_filter_len - 1, -1)
-                elif self.groupflow_manager.filter_len_iter == FILTER_LEN_ITER_EXPECTED_ALTERNATING:
-                    expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
-                    low_list = range(expected_fpf_len - 1, min_filter_len - 1, -1)
-                    high_list = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
-                    filter_len_test_range = [x for x in itertools.chain.from_iterable(itertools.izip_longest(high_list, low_list)) if x]
+                expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
+                filter_len_test_range = self.groupflow_manager.get_filter_len_interval(expected_fpf_len)
                 
                 # log.info('filter_len_test_range = ' + str(filter_len_test_range))
                 #if not groupflow_trace_event is None:
@@ -528,11 +511,11 @@ class MulticastPath(object):
                         complete_shim_header[mtree_index] = complete_shim_header[mtree_index] + stage_filter.pack_shim_header()
                     #log.info('Calculated stage shim header: ' + bitarray_to_str(stage_filter.pack_shim_header()))
                 else:
-                    log.warn('BLOOM FILTER ERROR: Failed to find false positive free bloom filter with length under ' + str(MAX_FILTER_LEN_BITS) + ' bits.')
                     # TODO: HANDLE THIS ERROR CONDITION MORE GRACEFULLY
                     if not groupflow_trace_event is None:
                         groupflow_trace_event.set_route_processing_end_time()
                         core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
+                    log.warn('BLOOM FILTER ERROR: Failed to find false positive free bloom filter with length under ' + str(MAX_FILTER_LEN_BITS) + ' bits.')
                     return
                     
                 # log.debug('=====')
@@ -920,6 +903,9 @@ class GroupFlowManager(EventMixin):
             log.info('Set FilterLengthIterationMethod: EXPECTED LOW FIRST')
         elif filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
             log.info('Set FilterLengthIterationMethod: EXPECTED HIGH FIRST')
+        self.filter_len_intervals = []
+        self.precalculate_filter_len_intervals()
+        log.info('Completed pre-calculation of filter length intervals')
         
         self.adjacency = defaultdict(lambda : defaultdict(lambda : None))
         self.topology_graph = []
@@ -1392,7 +1378,40 @@ class GroupFlowManager(EventMixin):
         # Fetches the expected filter length for a given alpha/beta from
         # a previously calculated array loaded from CSV
         return self.expected_filter_len_array[alpha][beta]
-
+        
+    def precalculate_filter_len_intervals(self):
+        # Pre-calculates and caches all possible filter length intervals for
+        # the configured filter length iteration method and MAX_FILTER_LEN_BITS
+        self.filter_len_intervals = []
+        
+        # Expected filter length of 0 should not produce a valid filter length interval,
+        # therefore the first entry in the filter_len_intervals list (with index 0) is
+        # set to an empty list
+        self.filter_len_intervals.append([])
+        
+        for expected_fpf_len in range(1, MAX_FILTER_LEN_BITS + 1):
+            if self.filter_len_iter == FILTER_LEN_ITER_MINIMUM_LENGTH:
+                self.filter_len_intervals.append(range(MIN_FILTER_LEN_BITS, MAX_FILTER_LEN_BITS + 1))
+            elif self.filter_len_iter == FILTER_LEN_ITER_EXPECTED_LOW_FIRST:
+                filter_len_test_range = range(expected_fpf_len, MIN_FILTER_LEN_BITS - 1, -1)
+                filter_len_test_range = filter_len_test_range + range(expected_fpf_len + 1, MAX_FILTER_LEN_BITS + 1)
+                self.filter_len_intervals.append(filter_len_test_range)
+            elif self.filter_len_iter == FILTER_LEN_ITER_EXPECTED_HIGH_FIRST:
+                filter_len_test_range = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
+                filter_len_test_range = filter_len_test_range + range(expected_fpf_len - 1, MIN_FILTER_LEN_BITS - 1, -1)
+                self.filter_len_intervals.append(filter_len_test_range)
+            elif self.filter_len_iter == FILTER_LEN_ITER_EXPECTED_ALTERNATING:
+                low_list = range(expected_fpf_len - 1, MIN_FILTER_LEN_BITS - 1, -1)
+                high_list = range(expected_fpf_len, MAX_FILTER_LEN_BITS + 1)
+                filter_len_test_range = [x for x in itertools.chain.from_iterable(itertools.izip_longest(high_list, low_list)) if x]
+                self.filter_len_intervals.append(filter_len_test_range)
+        
+    
+    def get_filter_len_interval(self, expected_fpf_len):
+        # Fetches the filter length interval for the configured filter length iteration
+        # method and expected false-positive-free filter length previously
+        # calculated and cached by precalculate_filter_len_intervals()
+        return self.filter_len_intervals[expected_fpf_len]
 
 def launch(link_weight_type = 'linear', static_link_weight = STATIC_LINK_WEIGHT, util_link_weight = UTILIZATION_LINK_WEIGHT, 
         flow_replacement_mode = 'none', flow_replacement_interval = FLOW_REPLACEMENT_INTERVAL_SECONDS, 
