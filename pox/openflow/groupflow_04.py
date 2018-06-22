@@ -1009,6 +1009,10 @@ class MulticastPath(object):
             ingress_connection.send(ingress_flow_mod)
         
         log.info('New flows installed for Group: ' + str(self.dst_mcast_address) + ' Source: ' + str(self.src_ip) + ' FlowCookie: ' + str(self.flow_cookie))
+        
+        if not groupflow_trace_event is None:
+            groupflow_trace_event.set_flow_installation_end_time()
+            core.groupflow_event_tracer.archive_trace_event(groupflow_trace_event)
                 
     def remove_openflow_rules(self):
         """Removes all OpenFlow rules associated with this multicast group / sender pair.
