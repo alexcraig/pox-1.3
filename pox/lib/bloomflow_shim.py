@@ -86,6 +86,7 @@ class bloom_filter:
         self.num_hash_functions = int(num_hash_functions)
         self.filter_bits = bitarray(MAX_NUM_BITS, endian='big')
         self.filter_bits[0:self.num_bits] = 0
+        self.num_hashes_last_op = 0
     
     def check_member(self, int_key):
         """Returns True if the specified integer key has been added to the hash function, or if abs
@@ -93,7 +94,10 @@ class bloom_filter:
         """
         for hash_index in range(0, self.num_hash_functions):
             if self.filter_bits[self.__generate_hashcode(int_key, hash_index)] == False:
+                self.num_hashes_last_op = hash_index + 1
                 return False
+        
+        self.num_hashes_last_op = self.num_hash_functions
         return True
     
     def add_member(self, int_key):

@@ -177,6 +177,17 @@ def expected_filter_len_calc(alpha, beta, expi_inverse_tolerance = 0.0000001):
     # log.info('exp_fpf_len, alpha = ' + str(alpha) + ', beta = ' + str(beta) + ', len = ' + str(exp_fpf_len))
     return exp_fpf_len
     
+def compare_edges(edge1, edge2):
+    if edge1[0] < edge2[0]:
+        return -1
+    elif edge1[0] > edge1[0]:
+        return 1
+    else:
+        if edge1[1] < edge2[1]:
+            return -1
+        elif edge1[1] > edge1[1]:
+            return 1
+    return 0
 
 class MulticastPath(object):
     """Manages multicast route calculation and installation for a single pair of multicast group and multicast sender."""
@@ -214,6 +225,7 @@ class MulticastPath(object):
         for mtree_index in range(0, self.num_multi_trees):
             if mtree_index == 0:
                 edges = self.weighted_topo_graph
+                edges = sorted(edges, cmp = compare_edges)
             else:
                 edges = self.multi_tree_increment_topo_graph(edges, self.path_tree_map[mtree_index - 1])
                 
@@ -461,6 +473,8 @@ class MulticastPath(object):
                                     #log.warn('Exclude edge: ' + dpid_to_str(edge[1]) + ' -> ' + dpid_to_str(dpid))
                                     exclude_bloom_ids.append(self.groupflow_manager.bloom_id_adjacency[self.src_router_dpid][dpid])
                 
+                exclude_bloom_ids.sort()
+                
                 # Build the range of values which will be tested for filter membership
                 expected_fpf_len = self.groupflow_manager.expected_filter_len(len(include_bloom_ids), len(exclude_bloom_ids))
                 filter_len_test_range = self.groupflow_manager.get_filter_len_interval(expected_fpf_len)
@@ -485,10 +499,12 @@ class MulticastPath(object):
                     # Test the filter for false positives
                     false_positive_free = True
                     for bloom_id in exclude_bloom_ids:
-                        num_hash_and_check_ops += num_hash_functions
                         if stage_filter.check_member(bloom_id):
+                            num_hash_and_check_ops += stage_filter.num_hashes_last_op
                             false_positive_free = False
                             break
+                        else:
+                            num_hash_and_check_ops += stage_filter.num_hashes_last_op
                     
                     if false_positive_free:
                         break

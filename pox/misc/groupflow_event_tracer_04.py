@@ -312,6 +312,7 @@ class GroupFlowTraceEvent(TraceEvent):
         return_string += 'Hash and set ops: ' + str(int(sum(self.hash_and_set_ops))) + '\n'
         return_string += 'Hash and set/check ops: ' + str(int(sum(self.hash_and_set_ops) + sum(self.hash_and_check_ops))) + '\n'
         return_string += 'Tested filter lens: ' + str(int(sum(self.tested_filter_lens))) + '\n'
+        return_string += 'Tested lens array: ' + str(self.tested_filter_lens) + '\n'
 
         if not self.igmp_trace_event is None:
             return_string += 'Triggered by event:\n'
